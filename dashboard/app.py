@@ -352,6 +352,7 @@ st.markdown(
 
 # ---------------------- DATABASE CONNECTION ----------------------
 REQUIRED_TABLES = {"customer_features", "recharges"}
+DB_LOAD_ERROR: str | None = None
 
 
 def _is_complete_db(candidate: Path) -> bool:
@@ -375,6 +376,8 @@ def _is_complete_db(candidate: Path) -> bool:
 @st.cache_resource(show_spinner="Loading the private Airtel databaseâ€¦")
 def _download_private_db() -> Path | None:
     """Download the database from private S3 storage when no local copy exists."""
+    global DB_LOAD_ERROR
+
     try:
         cfg = st.secrets["database"]
         bucket, key = str(cfg["s3_bucket"]), str(cfg["s3_key"])
@@ -383,19 +386,35 @@ def _download_private_db() -> Path | None:
         secret_key = str(cfg["aws_secret_access_key"])
         session_token = cfg.get("aws_session_token")
     except (KeyError, FileNotFoundError):
+        DB_LOAD_ERROR = (
+            "Streamlit Cloud Secrets are not configured. Add the [database] "
+            "S3 settings shown below, then save and reboot the app."
+        )
+        return None
+
+    if not all((bucket.strip(), key.strip(), region.strip(), access_key.strip(), secret_key.strip())):
+        DB_LOAD_ERROR = (
+            "The [database] Secrets section is incomplete. Set the bucket, object key, "
+            "region, access key, and secret key, then save and reboot the app."
+        )
         return None
 
     # Keep the downloaded copy outside the app repository and replace it only
     # after a complete transfer, so a failed download cannot leave a partial DB.
-    cache_dir = Path(tempfile.gettempdir()) / "airtel-telecom-analytics"
-    cache_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    os.chmod(cache_dir, 0o700)
-    destination = cache_dir / "airtel.db"
-    if _is_complete_db(destination):
-        return destination
-
-    temporary = cache_dir / "airtel.db.download"
+    temporary: Path | None = None
     try:
+        cache_dir = Path(tempfile.gettempdir()) / "airtel-telecom-analytics"
+        cache_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        try:
+            os.chmod(cache_dir, 0o700)
+        except OSError:
+            pass
+        destination = cache_dir / "airtel.db"
+        if _is_complete_db(destination):
+            DB_LOAD_ERROR = None
+            return destination
+
+        temporary = cache_dir / "airtel.db.download"
         import boto3
 
         client = boto3.client(
@@ -408,15 +427,35 @@ def _download_private_db() -> Path | None:
         client.download_file(bucket, key, str(temporary))
         if not _is_complete_db(temporary):
             temporary.unlink(missing_ok=True)
+            DB_LOAD_ERROR = (
+                "The S3 object downloaded, but it is not a valid Airtel analysis database. "
+                "Check that the object key points to the full database file."
+            )
             return None
         os.replace(temporary, destination)
         try:
             os.chmod(destination, 0o600)
         except OSError:
             pass
+        DB_LOAD_ERROR = None
         return destination
-    except Exception:
-        temporary.unlink(missing_ok=True)
+    except Exception as exc:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+        response = getattr(exc, "response", {})
+        error_code = response.get("Error", {}).get("Code") if isinstance(response, dict) else None
+        if error_code == "AccessDenied":
+            DB_LOAD_ERROR = "AWS denied access. Allow this key to read the configured S3 object."
+        elif error_code in {"NoSuchBucket", "NoSuchKey", "404"}:
+            DB_LOAD_ERROR = "The configured S3 bucket or object key was not found. Check both values in Secrets."
+        elif error_code in {"InvalidAccessKeyId", "SignatureDoesNotMatch", "ExpiredToken"}:
+            DB_LOAD_ERROR = "The AWS credentials in Secrets are invalid or expired. Update them and reboot the app."
+        else:
+            DB_LOAD_ERROR = (
+                "The private S3 database could not be downloaded. Verify the bucket, region, "
+                "read permission, and AWS credentials; see Streamlit Cloud logs for details. "
+                f"Error type: {type(exc).__name__}."
+            )
         return None
 
 
@@ -438,7 +477,16 @@ if DB_PATH is None:
         "data/raw/airtel.db. In Streamlit Cloud, configure the private S3 database "
         "credentials in app Secrets. Do not use the small data/airtel.db practice file."
     )
-    st.code("[database]\ns3_bucket = \"your-private-bucket\"\ns3_key = \"airtel/airtel.db\"\naws_region = \"ap-south-1\"\naws_access_key_id = \"...\"\naws_secret_access_key = \"...\"")
+    if DB_LOAD_ERROR:
+        st.warning(DB_LOAD_ERROR)
+    st.code(
+        '[database]\n'
+        's3_bucket = "YOUR_PRIVATE_BUCKET_NAME"\n'
+        's3_key = "airtel/airtel.db"\n'
+        'aws_region = "ap-south-1"\n'
+        'aws_access_key_id = "YOUR_READ_ONLY_ACCESS_KEY"\n'
+        'aws_secret_access_key = "YOUR_READ_ONLY_SECRET_KEY"'
+    )
     st.stop()
 
 
