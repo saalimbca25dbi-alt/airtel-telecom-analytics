@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import sqlite3
 from datetime import date, datetime
 from html import escape
@@ -36,6 +37,13 @@ NAVY, INDIGO, TEAL, AMBER = "#2B2F5E", "#3D5AFE", "#00A878", "#FFB400"
 INK, GRID = "#20242B", "#ECEDF1"
 PALETTE = [RED, INDIGO, "#FF9F1C", TEAL, "#8E24AA"]
 
+_AIRTEL_SVG = """
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <path fill="#E40000" fill-rule="evenodd" d="M35.5 7C21.2 7 9.5 16.5 9.5 29.8c0 9.6 5.9 18.2 15.6 22.8 1.6.8 3.3-.6 2.8-2.3-1.4-4.8-.6-9.8 2.4-13.5 3.6-4.5 9.8-6.4 15.1-4.3 4.3 1.7 6.8 5.8 5.6 10.1-.8 2.8-2.8 5.2-5.7 6.5-2.1 1-1.3 4.2 1 4.1 6.7-.3 12.2-6.5 12.2-15.4C58.5 19.7 48.8 7 35.5 7zm2.2 18.5c-5.4 0-10 3.7-11.1 8.8-.3 1.4 1 2.6 2.3 2 3.1-1.5 6.8-1.5 9.7-.1 2.7 1.3 4.2 3.9 3.6 6.6-.4 1.8 1.4 3.2 3 2.3 3.7-2 5.9-5.8 5.9-10 0-5.4-5.9-9.6-13.4-9.6z"/>
+</svg>
+""".strip()
+AIRTEL_LOGO_URI = "data:image/svg+xml;base64," + base64.b64encode(_AIRTEL_SVG.encode("utf-8")).decode("ascii")
+
 # --------------------------- THEME ---------------------------
 st.markdown(
     """
@@ -43,7 +51,7 @@ st.markdown(
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
     /* ---------- base + subtle animated background colour ---------- */
-    :root {color-scheme: light;}
+    :root {color-scheme: light; --chart-h: clamp(145px, calc((100vh - 390px) / 2), 380px);}
     html, body, [class*="css"] {font-family:Inter,Arial,sans-serif;}
     .stApp {
         isolation:isolate;
@@ -66,10 +74,15 @@ st.markdown(
         background-size:200% 200%;
         animation:bgShift 14s ease-in-out infinite alternate;
     }
-    [data-testid="stHeader"] {background:transparent;}
+    [data-testid="stHeader"] {background:transparent!important;height:0!important;min-height:0!important;overflow:visible!important;}
     [data-testid="stToolbar"], [data-testid="stDecoration"], .stAppDeployButton {display:none!important;}
     #MainMenu, footer {visibility:hidden;}
-    .block-container {padding:.7rem 1.1rem .6rem!important;max-width:100%!important;}
+    .block-container {padding:0.35rem 0.9rem 0.25rem!important;max-width:100%!important;}
+    /* Streamlit 1.67 puts margin-bottom:-1rem on stMarkdownContainer; reset it so custom HTML blocks never overlap */
+    [data-testid="stMarkdownContainer"] {margin-bottom:0!important;}
+    [data-testid="stMarkdownContainer"] > p:last-child {margin-bottom:0!important;}
+    [data-testid="stMain"] [data-testid="stVerticalBlock"] {gap:0.28rem!important;}
+    [class*="st-key-card_"] [data-testid="stVerticalBlock"] {gap:0.22rem!important;}
     iframe[height="0"] {display:none;}
     /* keep everything fully visible while Streamlit is re-running (no grey "faded" look) */
     [data-stale="true"], .stale-element {opacity:1!important;transition:none!important;}
@@ -89,21 +102,23 @@ st.markdown(
           linear-gradient(180deg,#272B37,#12151C);
         border-right:1px solid #3B404B;
     }
+    [data-testid="stSidebar"] [data-testid="stSidebarContent"] {padding-top:0.75rem!important;padding-bottom:0.5rem!important;}
+    [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {gap:0.42rem!important;}
     [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3,
     [data-testid="stSidebar"] label p, [data-testid="stSidebar"] .stMarkdown p,
     [data-testid="stSidebar"] .stCaption, [data-testid="stSidebar"] small,
     [data-testid="stSidebar"] [data-testid="stButton"] button,
     [data-testid="stSidebar"] [data-testid="stButton"] button * {color:#fff!important;}
-    [data-testid="stSidebar"] h2 {font-size:18px;font-weight:800;margin:6px 0 4px;}
-    [data-testid="stSidebar"] label p {font-size:12.5px;font-weight:700;opacity:1;}
+    [data-testid="stSidebar"] h2 {font-size:15px;font-weight:800;margin:2px 0 0;}
+    [data-testid="stSidebar"] label p {font-size:11.5px;font-weight:700;opacity:1;}
     /* filter boxes: solid white with crisp black text (compatible with Streamlit 1.67+ and older BaseWeb) */
     [data-testid="stSidebar"] [data-baseweb="select"] > div,
     [data-testid="stSidebar"] [data-testid="stSelectbox"] div:has(> input),
     [data-testid="stSidebar"] [data-testid="stDateInput"] [data-baseweb="input"],
     [data-testid="stSidebar"] [data-testid="stDateInput"] [data-baseweb="base-input"],
     [data-testid="stSidebar"] [data-testid="stDateInputField"] {
-        background:#FFFFFF!important;border:1px solid #000000!important;border-radius:10px!important;
-        min-height:40px;transition:all .2s ease;opacity:1!important;
+        background:#FFFFFF!important;border:1px solid #000000!important;border-radius:9px!important;
+        min-height:34px!important;height:34px!important;transition:all .2s ease;opacity:1!important;
     }
     [data-testid="stSidebar"] [data-baseweb="select"] *,
     [data-testid="stSidebar"] [data-testid="stSelectbox"] input,
@@ -126,19 +141,20 @@ st.markdown(
     [data-testid="stSidebar"] [data-testid="stDateInputField"]:hover {
         box-shadow:0 0 0 3px rgba(255,76,106,.6);transform:translateY(-1px);
     }
-    [data-testid="stSidebar"] hr {border-color:rgba(255,255,255,.16);}
-    [data-testid="stSidebar"] .stCaption, [data-testid="stSidebar"] small {opacity:.8;}
-    .side-brand {font-size:36px;font-weight:800;letter-spacing:-1.2px;color:#FF3355!important;line-height:1;}
-    .side-sub {font-size:9px;letter-spacing:2px;color:#fff!important;opacity:.85;margin-top:5px;}
+    [data-testid="stSidebar"] hr {border-color:rgba(255,255,255,.16);margin:4px 0!important;}
+    [data-testid="stSidebar"] .stCaption, [data-testid="stSidebar"] small {opacity:.8;font-size:10.5px;line-height:1.25;}
+    .side-brand {display:flex;align-items:center;gap:8px;font-size:28px;font-weight:800;letter-spacing:-1.2px;color:#FF3355!important;line-height:1;}
+    .side-brand img {width:26px;height:26px;border-radius:7px;background:#fff;padding:2px;box-shadow:0 3px 8px rgba(0,0,0,.25);}
+    .side-sub {font-size:8.5px;letter-spacing:1.8px;color:#fff!important;opacity:.85;margin-top:3px;}
     .sel-card {
-        background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.22);border-radius:14px;
-        padding:12px 14px;margin-top:6px;backdrop-filter:blur(4px);transition:all .25s ease;color:#fff!important;
+        background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.22);border-radius:12px;
+        padding:9px 12px;margin-top:2px;backdrop-filter:blur(4px);transition:all .25s ease;color:#fff!important;
     }
-    .sel-card:hover {background:rgba(255,255,255,.18);transform:translateY(-3px);box-shadow:0 10px 20px rgba(0,0,0,.30);}
-    .sel-head {font-size:11px;font-weight:700;letter-spacing:.5px;color:#fff!important;opacity:.85;}
-    .sel-text {font-size:15px;font-weight:800;color:#FF8CA0!important;margin:4px 0 8px;line-height:1.25;}
-    .sel-num {font-size:26px;font-weight:800;color:#fff!important;line-height:1;}
-    .sel-lbl {font-size:11px;color:#fff!important;opacity:.85;margin-top:3px;}
+    .sel-card:hover {background:rgba(255,255,255,.18);transform:translateY(-2px);box-shadow:0 10px 20px rgba(0,0,0,.30);}
+    .sel-head {font-size:10px;font-weight:700;letter-spacing:.5px;color:#fff!important;opacity:.85;}
+    .sel-text {font-size:13px;font-weight:800;color:#FF8CA0!important;margin:3px 0 5px;line-height:1.2;}
+    .sel-num {font-size:21px;font-weight:800;color:#fff!important;line-height:1;}
+    .sel-lbl {font-size:10px;color:#fff!important;opacity:.85;margin-top:2px;}
 
     /* dropdown menus (they open in a portal, outside the sidebar) */
     [data-baseweb="popover"] ul, [data-baseweb="popover"] li, [data-baseweb="popover"] div[role="listbox"],
@@ -151,10 +167,10 @@ st.markdown(
 
     /* ---------- banner ---------- */
     .airtel-banner {
-        position:relative;display:flex;align-items:center;justify-content:space-between;gap:16px;
+        position:relative;display:flex;align-items:center;justify-content:space-between;gap:12px;
         background:linear-gradient(105deg,#7A0018 0%,#D2002A 50%,#FF3D5A 100%);background-size:180% 100%;
-        color:#fff;border-radius:18px;padding:18px 26px;
-        box-shadow:0 12px 28px rgba(160,0,30,.30);margin-bottom:10px;overflow:hidden;
+        color:#fff;border-radius:13px;padding:7px 18px;
+        box-shadow:0 6px 16px rgba(160,0,30,.24);margin-bottom:0;overflow:hidden;
         animation:bannerFlow 9s ease-in-out infinite alternate;
     }
     .airtel-banner::before {
@@ -163,134 +179,154 @@ st.markdown(
         transform:skewX(-20deg);animation:shine 6s ease-in-out infinite;
     }
     .airtel-banner::after {
-        content:"";position:absolute;right:-70px;top:-90px;width:280px;height:280px;border-radius:50%;
+        content:"";position:absolute;right:-70px;top:-90px;width:240px;height:240px;border-radius:50%;
         background:radial-gradient(circle,rgba(255,255,255,.22),transparent 68%);
     }
-    .brand-left {display:flex;align-items:center;gap:16px;position:relative;z-index:1;}
-    .brand-logo {font-size:34px;font-weight:800;letter-spacing:-1.2px;padding-right:16px;border-right:1px solid rgba(255,255,255,.5);}
-    .airtel-title {font-size:26px;font-weight:800;line-height:1.15;}
-    .airtel-sub {font-size:12.5px;font-weight:500;opacity:.95;margin-top:3px;}
-    .banner-right {display:flex;gap:10px;align-items:center;position:relative;z-index:1;flex-wrap:wrap;justify-content:flex-end;}
+    .brand-left {display:flex;align-items:center;gap:12px;position:relative;z-index:1;}
+    .brand-logo {
+        display:flex;align-items:center;gap:7px;background:#FFFFFF;color:#E0002B;
+        border-radius:10px;padding:4px 11px 4px 7px;font-size:20px;font-weight:800;letter-spacing:-0.8px;line-height:1;
+        box-shadow:0 4px 12px rgba(0,0,0,.18);
+    }
+    .brand-logo img {width:24px;height:24px;display:block;}
+    .airtel-title {font-size:17px;font-weight:800;line-height:1.1;}
+    .airtel-sub {font-size:10.5px;font-weight:500;opacity:.93;margin-top:1px;}
+    .banner-right {display:flex;gap:8px;align-items:center;position:relative;z-index:1;flex-wrap:wrap;justify-content:flex-end;}
     .chip {background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.4);border-radius:999px;
-           padding:7px 14px;font-size:12px;font-weight:650;backdrop-filter:blur(4px);transition:all .25s ease;cursor:default;}
-    .chip:hover {background:rgba(255,255,255,.34);transform:translateY(-3px) scale(1.04);}
-    .live-dot {display:inline-block;width:8px;height:8px;border-radius:50%;background:#5CFF9D;margin-right:7px;
+           padding:4px 11px;font-size:11px;font-weight:650;backdrop-filter:blur(4px);transition:all .25s ease;cursor:default;}
+    .chip:hover {background:rgba(255,255,255,.34);transform:translateY(-2px) scale(1.03);}
+    .live-dot {display:inline-block;width:7px;height:7px;border-radius:50%;background:#5CFF9D;margin-right:6px;
                box-shadow:0 0 0 0 rgba(92,255,157,.7);animation:pulse 1.8s infinite;}
-    .reader {color:#5E6671;font-size:12px;margin:0 0 8px 3px;}
+    .reader {color:#5E6671;font-size:10.5px;margin:1px 0 2px 3px;line-height:1.2;}
 
     /* ---------- section labels ---------- */
-    .section-label {color:#B60027;font-size:18px;font-weight:800;margin:4px 0 10px;display:flex;align-items:center;gap:9px;}
-    .section-label::before {content:"";width:6px;height:22px;border-radius:3px;background:linear-gradient(180deg,#FF4C6A,#B60027);}
+    .section-label {color:#B60027;font-size:14px;font-weight:800;margin:0 0 2px;display:flex;align-items:center;gap:7px;line-height:1.2;}
+    .section-label::before {content:"";width:5px;height:16px;border-radius:3px;background:linear-gradient(180deg,#FF4C6A,#B60027);}
+    .detail-sub {color:#5E6671;font-size:10.5px;margin:0 0 2px 12px;line-height:1.2;}
 
     /* ---------- KPI cards (accent colour set per card) ---------- */
     .kpi-card {
         --acc:#E0002B;--acc-soft:#FFE3E8;--mx:50%;--my:50%;
-        position:relative;background:rgba(255,255,255,.92);backdrop-filter:blur(10px);border:1px solid rgba(230,231,236,.95);border-radius:16px;
-        padding:14px 16px 13px 76px;min-height:98px;overflow:hidden;
-        box-shadow:0 4px 12px rgba(30,30,50,.07);
+        position:relative;background:rgba(255,255,255,.92);backdrop-filter:blur(10px);border:1px solid rgba(230,231,236,.95);border-radius:12px;
+        padding:6px 12px 6px 52px;min-height:54px;overflow:hidden;
+        box-shadow:0 3px 10px rgba(30,30,50,.06);
         transition:transform .18s ease-out,box-shadow .28s ease,border-color .28s ease;
         animation:fadeIn .55s ease-out both;will-change:transform;
     }
-    .kpi-card::before {content:"";position:absolute;left:0;top:0;bottom:0;width:6px;background:var(--acc);}
+    .kpi-card::before {content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--acc);}
     .kpi-card::after {
         content:"";position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity .3s ease;
-        background:radial-gradient(260px circle at var(--mx) var(--my),var(--acc-soft),transparent 65%);
+        background:radial-gradient(220px circle at var(--mx) var(--my),var(--acc-soft),transparent 65%);
     }
-    .kpi-card:hover {box-shadow:0 18px 34px rgba(30,30,60,.20);border-color:var(--acc);}
+    .kpi-card:hover {box-shadow:0 12px 24px rgba(30,30,60,.16);border-color:var(--acc);}
     .kpi-card:hover::after {opacity:1;}
     .kpi-icon {
-        position:absolute;left:18px;top:50%;transform:translateY(-50%);width:46px;height:46px;border-radius:14px;
-        display:flex;align-items:center;justify-content:center;font-size:22px;z-index:1;
+        position:absolute;left:11px;top:50%;transform:translateY(-50%);width:33px;height:33px;border-radius:9px;
+        display:flex;align-items:center;justify-content:center;font-size:16px;z-index:1;
         background:var(--acc-soft);transition:transform .35s ease;
     }
-    .kpi-card:hover .kpi-icon {transform:translateY(-50%) rotate(-10deg) scale(1.15);}
-    .kpi-label {color:#626A75;font-size:11px;font-weight:700;letter-spacing:.3px;position:relative;z-index:1;}
-    .kpi-value {color:var(--acc);font-size:28px;font-weight:800;margin-top:3px;line-height:1.1;position:relative;z-index:1;}
+    .kpi-card:hover .kpi-icon {transform:translateY(-50%) rotate(-10deg) scale(1.12);}
+    .kpi-label {color:#626A75;font-size:9.5px;font-weight:700;letter-spacing:.3px;position:relative;z-index:1;line-height:1.1;}
+    .kpi-value {color:var(--acc);font-size:19px;font-weight:800;margin-top:1px;line-height:1.1;position:relative;z-index:1;}
     .kpi-value.muted {color:#20242B;}
-    .kpi-note {color:#7B828C;font-size:10.5px;margin-top:4px;line-height:1.35;position:relative;z-index:1;}
+    .kpi-note {color:#7B828C;font-size:9.5px;margin-top:1px;line-height:1.2;position:relative;z-index:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 
     /* ---------- chart cards (each chart + its filters live in one card) ---------- */
     [class*="st-key-card_"] {
         --mx:50%;--my:-30%;
-        position:relative;background:rgba(255,255,255,.92);backdrop-filter:blur(10px);border:1px solid rgba(230,231,236,.95);border-top:4px solid #E0002B;border-radius:16px;
-        padding:12px 14px 8px;overflow:hidden;
-        box-shadow:0 4px 12px rgba(30,30,50,.06);
-        transition:transform .28s cubic-bezier(.2,.8,.2,1),box-shadow .28s ease,border-color .28s ease;
+        position:relative;background:rgba(255,255,255,.92);backdrop-filter:blur(10px);border:1px solid rgba(230,231,236,.95);border-top:3px solid #E0002B;border-radius:12px;
+        padding:6px 10px 4px;overflow:hidden;
+        box-shadow:0 3px 10px rgba(30,30,50,.06);
+        transition:transform .25s cubic-bezier(.2,.8,.2,1),box-shadow .25s ease,border-color .25s ease;
     }
     [class*="st-key-card_"]::before {
         content:"";position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity .3s ease;
-        background:radial-gradient(340px circle at var(--mx) var(--my),rgba(224,0,43,.10),transparent 65%);
+        background:radial-gradient(300px circle at var(--mx) var(--my),rgba(224,0,43,.10),transparent 65%);
     }
-    [class*="st-key-card_"]:hover {transform:translateY(-5px);box-shadow:0 20px 38px rgba(200,16,46,.18);border-top-color:#3D5AFE;}
+    [class*="st-key-card_"]:hover {transform:translateY(-2px);box-shadow:0 12px 24px rgba(200,16,46,.15);border-top-color:#3D5AFE;}
     [class*="st-key-card_"]:hover::before {opacity:1;}
     .chart-title {
-        background:linear-gradient(90deg,#B00024,#E0002B 70%,#FF4C6A);color:#fff;border-radius:10px;
-        padding:9px 14px;font-size:13.5px;font-weight:750;margin:0 0 8px;
-        display:flex;align-items:center;gap:9px;box-shadow:0 4px 10px rgba(200,16,46,.20);
+        background:linear-gradient(90deg,#B00024,#E0002B 70%,#FF4C6A);color:#fff;border-radius:8px;
+        padding:4px 10px;font-size:11.5px;font-weight:750;margin:0 0 2px;
+        display:flex;align-items:center;gap:7px;box-shadow:0 3px 8px rgba(200,16,46,.18);line-height:1.2;
     }
-    .chart-note {font-size:10.5px;color:#5E6671;margin:2px 0 4px 3px;}
-    div[data-testid="stPlotlyChart"] {background:transparent;border:none;padding:0;}
+    .chart-note {font-size:9px;color:#5E6671;margin:0 0 0 2px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    div[data-testid="stPlotlyChart"] {
+        background:transparent;border:none;padding:0;margin:0!important;
+        height:var(--chart-h)!important;min-height:145px!important;
+    }
 
-    /* ---------- tabs as pills ---------- */
-    [data-baseweb="tab-list"] {gap:10px!important;border-bottom:none!important;margin-bottom:8px;}
-    [data-baseweb="tab-highlight"], [data-baseweb="tab-border"] {display:none!important;}
-    button[data-baseweb="tab"] {
-        background:#fff!important;border:1px solid #E0E2E8!important;border-radius:12px!important;padding:10px 24px!important;
-        box-shadow:0 2px 8px rgba(0,0,0,.06);transition:all .25s ease;height:auto!important;
+    /* ---------- tabs as pills (Streamlit 1.67 React Aria + BaseWeb fallback) ---------- */
+    [data-baseweb="tab-list"], [data-testid="stTabs"] [role="tablist"] {
+        gap:8px!important;border-bottom:none!important;margin-bottom:4px!important;overflow:visible!important;padding:2px 0!important;
     }
-    button[data-baseweb="tab"] p {font-size:14.5px;font-weight:750;color:#3A404A!important;}
-    button[data-baseweb="tab"]:hover {transform:translateY(-3px);box-shadow:0 10px 18px rgba(200,16,46,.20);border-color:#F2A0AE!important;}
-    button[data-baseweb="tab"][aria-selected="true"] {
+    [data-baseweb="tab-highlight"], [data-baseweb="tab-border"],
+    [data-testid="stTabs"] [role="tablist"]::after,
+    [data-testid="stTab"] .react-aria-SelectionIndicator {display:none!important;}
+    button[data-baseweb="tab"], [data-testid="stTab"] {
+        background:#fff!important;border:1px solid #E0E2E8!important;border-radius:9px!important;padding:5px 16px!important;
+        box-shadow:0 2px 6px rgba(0,0,0,.05);transition:all .2s ease;height:auto!important;min-height:0!important;
+    }
+    button[data-baseweb="tab"] p, [data-testid="stTab"] p {font-size:12.5px!important;font-weight:750!important;color:#3A404A!important;line-height:1.2;margin:0!important;}
+    button[data-baseweb="tab"]:hover, [data-testid="stTab"]:hover {transform:translateY(-1px);box-shadow:0 6px 12px rgba(200,16,46,.18);border-color:#F2A0AE!important;}
+    button[data-baseweb="tab"][aria-selected="true"],
+    [data-testid="stTab"][aria-selected="true"],
+    [data-testid="stTab"][data-selected="true"] {
         background:linear-gradient(105deg,#B00024,#E0002B 70%,#FF4C6A)!important;border-color:#C8102E!important;
-        box-shadow:0 10px 20px rgba(200,16,46,.38);
+        box-shadow:0 6px 14px rgba(200,16,46,.30);
     }
-    button[data-baseweb="tab"][aria-selected="true"] p {color:#fff!important;}
+    button[data-baseweb="tab"][aria-selected="true"] p,
+    [data-testid="stTab"][aria-selected="true"] p,
+    [data-testid="stTab"][data-selected="true"] p {color:#fff!important;}
 
     /* ---------- main-area widgets ---------- */
-    [data-testid="stMain"] [data-testid="stSelectbox"] label p {font-size:11px;font-weight:700;color:#4F5661!important;}
+    [data-testid="stMain"] [data-testid="stSelectbox"] label {margin-bottom:1px!important;min-height:0!important;}
+    [data-testid="stMain"] [data-testid="stSelectbox"] label p {font-size:9px;font-weight:700;color:#4F5661!important;line-height:1.1;}
     [data-testid="stMain"] [data-baseweb="select"] > div,
     [data-testid="stMain"] [data-testid="stSelectbox"] div:has(> input) {
-        background:#F8F9FB!important;color:#20242B!important;border:1px solid #E0E2E8!important;border-radius:10px!important;
-        min-height:36px;transition:all .2s ease;
+        background:#F8F9FB!important;color:#20242B!important;border:1px solid #E0E2E8!important;border-radius:7px!important;
+        min-height:25px!important;height:25px!important;transition:all .2s ease;
     }
     [data-testid="stMain"] [data-baseweb="select"] > div *,
-    [data-testid="stMain"] [data-testid="stSelectbox"] input {color:#20242B!important;-webkit-text-fill-color:#20242B!important;}
+    [data-testid="stMain"] [data-testid="stSelectbox"] input {color:#20242B!important;-webkit-text-fill-color:#20242B!important;font-size:11px!important;}
     [data-testid="stMain"] [data-baseweb="select"] svg,
-    [data-testid="stMain"] [data-testid="stSelectbox"] button svg {fill:#C8102E!important;color:#C8102E!important;}
+    [data-testid="stMain"] [data-testid="stSelectbox"] button svg {fill:#C8102E!important;color:#C8102E!important;width:13px;height:13px;}
     [data-testid="stMain"] [data-baseweb="select"] > div:hover,
-    [data-testid="stMain"] [data-testid="stSelectbox"] div:has(> input):hover {border-color:#E0002B!important;background:#fff!important;box-shadow:0 0 0 3px rgba(224,0,43,.14);}
-    div[data-testid="stSelectbox"] {margin-bottom:-6px;}
+    [data-testid="stMain"] [data-testid="stSelectbox"] div:has(> input):hover {border-color:#E0002B!important;background:#fff!important;box-shadow:0 0 0 2px rgba(224,0,43,.14);}
+    div[data-testid="stSelectbox"] {margin-bottom:0!important;}
     div[data-testid="stButton"] button {
-        border:1px solid #FF3355;background:rgba(255,255,255,.08);font-weight:700;border-radius:10px;transition:all .25s ease;
+        border:1px solid #FF3355;background:rgba(255,255,255,.08);font-weight:700;border-radius:9px;
+        padding:0.25rem 0.6rem!important;min-height:32px!important;transition:all .25s ease;
     }
     div[data-testid="stButton"] button:hover {background:#E0002B;transform:translateY(-2px);box-shadow:0 8px 16px rgba(224,0,43,.45);}
 
     /* ---------- key takeaways + overall insight ---------- */
     .take-card {
         --mx:50%;--my:0%;position:relative;overflow:hidden;
-        background:linear-gradient(180deg,#FFF1F3,#FFFFFF);border:1px solid #F4C3CC;border-top:4px solid #3D5AFE;border-radius:16px;
-        padding:14px 16px;box-shadow:0 4px 12px rgba(30,30,50,.06);height:100%;
-        transition:transform .28s ease,box-shadow .28s ease;animation:fadeIn .6s ease-out both;
+        background:linear-gradient(180deg,#FFF1F3,#FFFFFF);border:1px solid #F4C3CC;border-top:3px solid #3D5AFE;border-radius:12px;
+        padding:8px 11px;box-shadow:0 3px 10px rgba(30,30,50,.06);height:100%;
+        transition:transform .25s ease,box-shadow .25s ease;animation:fadeIn .6s ease-out both;
     }
     .take-card::before {content:"";position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity .3s ease;
         background:radial-gradient(300px circle at var(--mx) var(--my),rgba(61,90,254,.10),transparent 65%);}
-    .take-card:hover {transform:translateY(-5px);box-shadow:0 18px 34px rgba(61,90,254,.20);}
+    .take-card:hover {transform:translateY(-2px);box-shadow:0 12px 24px rgba(61,90,254,.16);}
     .take-card:hover::before {opacity:1;}
-    .take-title {font-size:16px;font-weight:800;color:#B60027;margin-bottom:8px;position:relative;}
-    .take-item {position:relative;display:flex;gap:9px;font-size:12.5px;line-height:1.5;color:#2B3038;margin:9px 0;padding:7px 9px;border-radius:10px;transition:background .2s ease,transform .2s ease;}
-    .take-item:hover {background:#FDE3E8;transform:translateX(5px);}
-    .take-dot {flex:0 0 22px;height:22px;border-radius:50%;background:#E0002B;color:#fff;font-size:11px;font-weight:800;
-               display:flex;align-items:center;justify-content:center;margin-top:1px;box-shadow:0 0 0 3px #FBD0D8;}
+    .take-title {font-size:12.5px;font-weight:800;color:#B60027;margin-bottom:4px;position:relative;}
+    .take-item {position:relative;display:flex;gap:7px;font-size:11px;line-height:1.3;color:#2B3038;margin:4px 0;padding:4px 6px;border-radius:8px;transition:background .2s ease,transform .2s ease;}
+    .take-item:hover {background:#FDE3E8;transform:translateX(3px);}
+    .take-dot {flex:0 0 18px;height:18px;border-radius:50%;background:#E0002B;color:#fff;font-size:10px;font-weight:800;
+               display:flex;align-items:center;justify-content:center;margin-top:1px;box-shadow:0 0 0 2px #FBD0D8;}
     .insight-bar {
-        margin-top:12px;background:linear-gradient(100deg,#1D2029,#2B2F5E);color:#fff;border-radius:14px;padding:13px 20px;
-        font-size:13px;line-height:1.5;box-shadow:0 10px 22px rgba(30,30,60,.28);transition:transform .25s ease,box-shadow .25s ease;
+        margin-top:2px;background:linear-gradient(100deg,#1D2029,#2B2F5E);color:#fff;border-radius:10px;padding:6px 14px;
+        font-size:11.5px;line-height:1.35;box-shadow:0 6px 14px rgba(30,30,60,.22);transition:transform .25s ease,box-shadow .25s ease;
         animation:fadeIn .7s ease-out both;
     }
-    .insight-bar:hover {transform:translateY(-3px);box-shadow:0 16px 30px rgba(30,30,60,.38);}
+    .insight-bar:hover {transform:translateY(-2px);box-shadow:0 12px 22px rgba(30,30,60,.30);}
     .insight-bar b {color:#FF8CA0;}
 
     /* ---------- footer ---------- */
-    .foot {border-top:1px solid #D9DBE2;padding-top:8px;margin-top:14px;color:#5E6671;font-size:10.5px;line-height:1.5;}
+    .foot {border-top:1px solid #D9DBE2;padding-top:3px;margin-top:2px;color:#5E6671;font-size:9.5px;line-height:1.3;
+           white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 
     /* ---------- animations ---------- */
     @keyframes fadeIn {from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
@@ -420,21 +456,23 @@ def render_chart_title(title: str, icon: str = "📈"):
     st.markdown(f'<div class="chart-title"><span>{icon}</span><span>{title}</span></div>', unsafe_allow_html=True)
 
 
-def render_chart(fig, height: int = 400):
+def render_chart(fig, height: int = 240, margin: dict | None = None):
+    existing_margin = fig.layout.margin.to_plotly_json() if fig.layout.margin else {}
+    resolved_margin = margin or existing_margin or dict(l=24, r=12, t=16, b=24)
     fig.update_layout(
-        template="plotly_white", height=height,
-        margin=dict(l=40, r=20, t=26, b=40),
+        template="plotly_white", autosize=True, height=height,
+        margin=resolved_margin,
         paper_bgcolor="rgba(255,255,255,0)", plot_bgcolor="#FFFFFF",
-        font=dict(family="Inter", size=11, color=INK),
+        font=dict(family="Inter", size=10, color=INK),
         transition_duration=500,
         hoverlabel=dict(bgcolor="#fff", font_size=11, font_color=INK, bordercolor=RED),
-        legend=dict(orientation="h", y=1.10, x=0, font=dict(size=10, color=INK)),
+        legend=dict(orientation="h", y=1.12, x=0, font=dict(size=9.5, color=INK)),
     )
-    fig.update_xaxes(showgrid=True, gridcolor=GRID, zerolinecolor="#B8BDC5",
-                     tickfont=dict(color=INK, size=10), title_font=dict(color=INK, size=11))
-    fig.update_yaxes(showgrid=False, zerolinecolor="#B8BDC5",
-                     tickfont=dict(color=INK, size=10), title_font=dict(color=INK, size=11))
-    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False, "responsive": True})
+    fig.update_xaxes(showgrid=True, gridcolor=GRID, zerolinecolor="#B8BDC5", automargin=True,
+                     tickfont=dict(color=INK, size=9), title_font=dict(color=INK, size=9.5))
+    fig.update_yaxes(showgrid=False, zerolinecolor="#B8BDC5", automargin=True,
+                     tickfont=dict(color=INK, size=9), title_font=dict(color=INK, size=9.5))
+    st.plotly_chart(fig, width="stretch", config={"displayModeBar": False, "responsive": True})
 
 
 # ---------------------- VERIFY DATABASE SCHEMA ----------------------
@@ -611,7 +649,7 @@ def recharge_where(filters: Dict[str, str], start: date, end: date, alias: str =
 
 # ---------------------- SIDEBAR (MAIN FILTERS) ----------------------
 with st.sidebar:
-    st.markdown('<div class="side-brand">airtel</div>'
+    st.markdown(f'<div class="side-brand"><img src="{AIRTEL_LOGO_URI}" alt="Airtel logo"><span>airtel</span></div>'
                 '<div class="side-sub">TELECOM ANALYTICS • GROUP 2</div>',
                 unsafe_allow_html=True)
     st.markdown("## 🎛️ Main Filters")
@@ -652,7 +690,7 @@ MAIN_FILTERS = {"plan": main_plan, "connection": main_connection, "region": main
 # ---------------------- HEADER ----------------------
 st.markdown(
     '<div class="airtel-banner">'
-    '<div class="brand-left"><div class="brand-logo">airtel</div>'
+    f'<div class="brand-left"><div class="brand-logo"><img src="{AIRTEL_LOGO_URI}" alt="Airtel logo"><span>airtel</span></div>'
     '<div><div class="airtel-title">Airtel Telecom Analytics</div>'
     '<div class="airtel-sub">Revenue Performance Dashboard &nbsp;|&nbsp; Group 2 &nbsp;|&nbsp; Domain B</div></div></div>'
     '<div class="banner-right">'
@@ -690,7 +728,7 @@ with page_overview:
         MAIN_FILTERS, MAIN_START, MAIN_END,
     ).iloc[0]
 
-    card1, card2, card3 = st.columns(3, gap="medium")
+    card1, card2, card3 = st.columns(3, gap="small")
     with card1:
         render_kpi("TOTAL RECEIVED REVENUE", money(fixed_total),
                    "January–June 2025 • Fixed validation period • Ignores filters", "💰", accent="red")
@@ -700,8 +738,7 @@ with page_overview:
         render_kpi("RECEIVED / SUBSCRIBER / MONTH", money(arpu_result["actual_arpu"]),
                    f"Average actual monthly ARPU • {months_in_period(MAIN_START, MAIN_END)}-month period", "👥", accent="teal")
 
-    st.markdown("")
-    left, right = st.columns(2, gap="medium")
+    left, right = st.columns(2, gap="small")
 
     # Chart 1 — DUMBBELL: stated ARPU vs actual received ARPU for every plan (same data as the old gap bars).
     gap = pd.DataFrame()
@@ -732,30 +769,30 @@ with page_overview:
                     below = row["gap_per_subscriber"] < 0
                     fig.add_trace(go.Scatter(
                         x=[row["stated_arpu"], row["received_arpu"]], y=[row["plan"], row["plan"]],
-                        mode="lines", line=dict(color=RED if below else TEAL, width=6),
+                        mode="lines", line=dict(color=RED if below else TEAL, width=4),
                         showlegend=False, hoverinfo="skip",
                     ))
                 fig.add_trace(go.Scatter(
                     x=gap["stated_arpu"], y=gap["plan"], mode="markers", name="Stated ARPU",
-                    marker=dict(size=13, color=NAVY, line=dict(width=2, color="#fff")),
+                    marker=dict(size=9, color=NAVY, line=dict(width=1.5, color="#fff")),
                     customdata=gap[["subscribers", "received_arpu"]].to_numpy(),
                     hovertemplate="%{y}<br>Stated ARPU: ₹%{x:,.2f}<br>Received ARPU: ₹%{customdata[1]:,.2f}"
                                   "<br>Subscribers: %{customdata[0]:,.0f}<extra></extra>",
                 ))
                 fig.add_trace(go.Scatter(
                     x=gap["received_arpu"], y=gap["plan"], mode="markers+text", name="Received ARPU",
-                    marker=dict(size=13, color=[RED if g < 0 else TEAL for g in gap["gap_per_subscriber"]],
-                                line=dict(width=2, color="#fff")),
+                    marker=dict(size=9, color=[RED if g < 0 else TEAL for g in gap["gap_per_subscriber"]],
+                                line=dict(width=1.5, color="#fff")),
                     text=[f"{'−' if g < 0 else '+'}₹{abs(g):,.0f}" for g in gap["gap_per_subscriber"]],
                     textposition=["middle left" if g < 0 else "middle right" for g in gap["gap_per_subscriber"]],
-                    textfont=dict(size=10, color=INK),
+                    textfont=dict(size=8.5, color=INK),
                     customdata=gap[["subscribers", "stated_arpu"]].to_numpy(),
                     hovertemplate="%{y}<br>Received ARPU: ₹%{x:,.2f}<br>Stated ARPU: ₹%{customdata[1]:,.2f}"
                                   "<br>Subscribers: %{customdata[0]:,.0f}<extra></extra>",
                 ))
                 fig.update_layout(xaxis_title="ARPU (₹ / subscriber / month)", yaxis_title="Plan")
-                fig.update_yaxes(categoryorder="array", categoryarray=list(gap["plan"])[::-1])
-                render_chart(fig, 420)
+                fig.update_yaxes(categoryorder="array", categoryarray=list(gap["plan"])[::-1], tickfont=dict(size=8.5, color=INK))
+                render_chart(fig, 240, margin=dict(l=8, r=16, t=18, b=22))
                 st.markdown('<div class="chart-note">Navy dot = stated ARPU. Coloured dot = received ARPU (red = below stated, green = above). Filter by connection, region, churn status, or gap direction.</div>', unsafe_allow_html=True)
             else:
                 st.info("No records match these chart filters.")
@@ -796,34 +833,32 @@ with page_overview:
                 fig.add_trace(go.Pie(   # outer ring = revenue share
                     labels=names, values=share["revenue_share"].fillna(0), hole=0.58, sort=False,
                     domain=dict(x=[0.0, 1.0], y=[0.0, 1.0]), name="Revenue share",
-                    marker=dict(colors=colors, line=dict(color="#fff", width=3)),
-                    textinfo="percent", textfont=dict(size=13, color="#fff"),
+                    marker=dict(colors=colors, line=dict(color="#fff", width=2)),
+                    textinfo="percent", textfont=dict(size=10.5, color="#fff"),
                     customdata=share[["received_revenue"]].fillna(0).to_numpy(),
                     hovertemplate="%{label}<br>Revenue share: %{value:.1f}%<br>Received revenue: ₹%{customdata[0]:,.0f}<extra>Outer ring</extra>",
                 ))
                 fig.add_trace(go.Pie(   # inner ring = subscriber share
-                    labels=names, values=share["subscriber_share"].fillna(0), hole=0.30, sort=False,
-                    domain=dict(x=[0.25, 0.75], y=[0.25, 0.75]), name="Subscriber share", showlegend=False,
-                    marker=dict(colors=colors, line=dict(color="#fff", width=3)), opacity=0.62,
-                    textinfo="percent", textfont=dict(size=12, color="#fff"),
+                    labels=names, values=share["subscriber_share"].fillna(0), hole=0.38, sort=False,
+                    domain=dict(x=[0.24, 0.76], y=[0.24, 0.76]), name="Subscriber share", showlegend=False,
+                    marker=dict(colors=colors, line=dict(color="#fff", width=2)), opacity=0.62,
+                    textinfo="percent", textfont=dict(size=9.5, color="#fff"),
                     customdata=share[["subscribers"]].fillna(0).to_numpy(),
                     hovertemplate="%{label}<br>Subscriber share: %{value:.1f}%<br>Subscribers: %{customdata[0]:,.0f}<extra>Inner ring</extra>",
                 ))
                 fig.update_layout(
-                    annotations=[dict(text="Inner ring = subscribers<br>Outer ring = revenue", x=0.5, y=0.5,
-                                      showarrow=False, font=dict(size=10, color="#5E6671"))],
+                    annotations=[dict(text="Inner: subs<br>Outer: rev", x=0.5, y=0.5,
+                                      showarrow=False, font=dict(size=8, color="#5E6671"))],
                     legend=dict(orientation="h", y=1.10, x=0),
                 )
-                render_chart(fig, 420)
+                render_chart(fig, 240, margin=dict(l=8, r=8, t=22, b=4))
                 st.markdown(f'<div class="chart-note">Comparing {escape(share_dim_label)} segments: if the outer ring exceeds the inner ring, that segment earns more than its subscriber share.</div>', unsafe_allow_html=True)
             else:
                 st.info("No segment records match these chart filters.")
 
-    st.markdown("")
-
     # Chart 3 — REVENUE FUNNEL across the SQL NTILE(10) deciles.
     deciles = pd.DataFrame()
-    chart3_col, take_col = st.columns([2.2, 1], gap="medium")
+    chart3_col, take_col = st.columns([2.2, 1], gap="small")
     with chart3_col:
         with card("ov_decile"):
             render_chart_title("3. Revenue contribution across subscriber deciles", "🔻")
@@ -868,15 +903,14 @@ with page_overview:
                     y=[f"Decile {int(v)}" for v in d["decile"]],
                     x=d["revenue_share"],
                     text=[f"{v:.1f}%" for v in d["revenue_share"]], textinfo="text",
-                    textposition="auto", insidetextfont=dict(size=12, color="#fff"), outsidetextfont=dict(size=11, color=INK),
+                    textposition="auto", insidetextfont=dict(size=10, color="#fff"), outsidetextfont=dict(size=9.5, color=INK),
                     marker=dict(color=[shade(i, n) for i in range(n)], line=dict(width=1, color="#fff")),
                     connector=dict(line=dict(color="#F5C1CA", width=1), fillcolor="rgba(245,193,202,.35)"),
                     customdata=d[["subscribers", "received_revenue"]].to_numpy(),
                     hovertemplate="%{y}<br>Revenue share: %{x:.1f}%<br>Subscribers: %{customdata[0]:,.0f}"
                                   "<br>Received revenue: ₹%{customdata[1]:,.0f}<extra></extra>",
                 ))
-                fig.update_layout(margin=dict(l=20, r=20, t=10, b=10))
-                render_chart(fig, 420)
+                render_chart(fig, 240, margin=dict(l=12, r=12, t=4, b=4))
                 st.markdown(f'<div class="chart-note">Deciles are calculated in SQL with NTILE(10), ranked by {escape(local["decile_metric"].lower())} from highest to lowest.</div>', unsafe_allow_html=True)
             else:
                 st.info("No subscriber records match the decile chart filters.")
@@ -934,9 +968,6 @@ with page_overview:
 # PAGE 2 — REVENUE DETAIL
 # ============================================================
 with page_detail:
-    st.markdown('<div class="section-label">Revenue Detail</div>', unsafe_allow_html=True)
-    st.caption("Select a plan to inspect its revenue, monthly trend, connection contribution and payment behaviour.")
-
     main_where, main_params = where_for(MAIN_FILTERS, "cf")
     plan_df = q(
         f"SELECT DISTINCT cf.plan_name AS value FROM customer_features cf WHERE {main_where} ORDER BY value",
@@ -945,9 +976,16 @@ with page_detail:
     available_plans = plan_df["value"].dropna().astype(str).tolist()
 
     if not available_plans:
+        st.markdown('<div class="section-label">Revenue Detail</div>', unsafe_allow_html=True)
         st.info("No plans match the main sidebar filters.")
     else:
-        selector_col, _ = st.columns([1, 2])
+        hdr_col, selector_col = st.columns([2.2, 1], gap="small")
+        with hdr_col:
+            st.markdown(
+                '<div class="section-label">Revenue Detail</div>'
+                '<div class="detail-sub">Select a plan to inspect its revenue, monthly trend, connection contribution and payment behaviour.</div>',
+                unsafe_allow_html=True,
+            )
         with selector_col:
             default_index = available_plans.index(main_plan) if main_plan in available_plans else 0
             selected_plan = st.selectbox("Plan selector", available_plans, index=default_index, key="detail_plan_selector")
@@ -959,7 +997,7 @@ with page_detail:
             detail_filters, MAIN_START, MAIN_END,
         ).iloc[0]
 
-        k1, k2, k3 = st.columns(3, gap="medium")
+        k1, k2, k3 = st.columns(3, gap="small")
         with k1:
             render_kpi("PLAN SUBSCRIBERS", f"{int(summary['subscribers']):,}", "Customer-level records in selected plan", "👥", accent="indigo")
         with k2:
@@ -967,8 +1005,7 @@ with page_detail:
         with k3:
             render_kpi("ACTUAL MONTHLY ARPU", money(summary["actual_arpu"]), f"Stated ARPU reference: {money(summary['stated_arpu'])}", "📈", accent="teal")
 
-        st.markdown("")
-        left, right = st.columns(2, gap="medium")
+        left, right = st.columns(2, gap="small")
 
         # Detail chart 1 — SUNBURST: plan family (Prepaid / Postpaid) → plan, sized by received revenue.
         with left:
@@ -1004,12 +1041,11 @@ with page_detail:
                         colors.append(AMBER if row["plan"] == selected_plan else tint(fam_colors[row["family"]], 0.55))
                     fig = go.Figure(go.Sunburst(
                         ids=ids, labels=labels, parents=parents, values=values, branchvalues="total",
-                        marker=dict(colors=colors, line=dict(color="#fff", width=2)),
-                        insidetextorientation="radial", textfont=dict(size=11, color=INK),
+                        marker=dict(colors=colors, line=dict(color="#fff", width=1.5)),
+                        insidetextorientation="radial", textfont=dict(size=10, color=INK),
                         hovertemplate="%{label}<br>Received revenue: ₹%{value:,.0f}<br>%{percentParent:.1%} of its group<extra></extra>",
                     ))
-                    fig.update_layout(margin=dict(l=10, r=10, t=10, b=10))
-                    render_chart(fig, 420)
+                    render_chart(fig, 240, margin=dict(l=4, r=4, t=4, b=4))
                     st.markdown('<div class="chart-note">Inner ring = plan family, outer ring = plans (size = received revenue). Selected plan is gold; filter by connection, region, circle, or churn status.</div>', unsafe_allow_html=True)
                 else:
                     st.info("No plan comparison data for these filters.")
@@ -1057,20 +1093,19 @@ with page_detail:
                         texts.append(f"₹{rev[-1]:,.0f}")
                     fig = go.Figure(go.Waterfall(
                         x=xs, y=ys, measure=measure, text=texts, textposition="outside",
-                        textfont=dict(size=11, color=INK), cliponaxis=False,
+                        textfont=dict(size=9.5, color=INK), cliponaxis=False,
                         increasing={"marker": {"color": TEAL}}, decreasing={"marker": {"color": RED}},
                         totals={"marker": {"color": NAVY}}, connector={"line": {"color": "#AAB0B8", "dash": "dot"}},
                         hovertemplate="%{x}<br>%{text}<extra></extra>",
                     ))
-                    fig.update_layout(showlegend=False, xaxis_title="Month", yaxis_title="Received revenue (₹)")
+                    fig.update_layout(showlegend=False, xaxis_title="", yaxis_title="Received revenue (₹)")
                     fig.update_yaxes(showgrid=True, gridcolor=GRID)
-                    render_chart(fig, 420)
+                    render_chart(fig, 240, margin=dict(l=30, r=10, t=20, b=22))
                     st.markdown('<div class="chart-note">First bar = first month; green/red = month-on-month change; last bar = latest month. Filter by channel, txn type, or plan scope.</div>', unsafe_allow_html=True)
                 else:
                     st.info("No monthly recharge records for these filters/date range.")
 
-        st.markdown("")
-        left2, right2 = st.columns(2, gap="medium")
+        left2, right2 = st.columns(2, gap="small")
 
         # Detail chart 3 — GAUGES: share of received revenue for each connection type.
         with left2:
@@ -1106,20 +1141,20 @@ with page_detail:
                         col = PALETTE[i % len(PALETTE)]
                         fig.add_trace(go.Indicator(
                             mode="gauge+number", value=pct,
-                            number={"suffix": "%", "valueformat": ".1f", "font": {"size": 34, "color": INK}},
-                            title={"text": f"<b>{escape(str(row['connection_type']))}</b><br>"
-                                           f"<span style='font-size:11px;color:#5E6671'>₹{row['revenue']:,.0f} • {int(row['subscribers']):,} subscribers</span>"},
-                            domain={"x": [i / n_g + 0.02, (i + 1) / n_g - 0.02], "y": [0.0, 0.72]},
+                            number={"suffix": "%", "valueformat": ".1f", "font": {"size": 24, "color": INK}},
+                            title={"font": {"size": 11.5},
+                                   "text": f"<b>{escape(str(row['connection_type']))}</b><br>"
+                                           f"<span style='font-size:10px;color:#5E6671'>₹{row['revenue']:,.0f} • {int(row['subscribers']):,} subs</span>"},
+                            domain={"x": [i / n_g + 0.03, (i + 1) / n_g - 0.03], "y": [0.08, 0.74]},
                             gauge={
-                                "axis": {"range": [0, 100], "tickfont": {"size": 9, "color": "#5E6671"}},
+                                "axis": {"range": [0, 100], "tickfont": {"size": 8.5, "color": "#5E6671"}},
                                 "bar": {"color": col, "thickness": 0.75},
                                 "bgcolor": "#fff", "borderwidth": 0,
                                 "steps": [{"range": [0, 100], "color": rgba(col, 0.14)}],
-                                "threshold": {"line": {"color": NAVY, "width": 3}, "thickness": 0.8, "value": pct},
+                                "threshold": {"line": {"color": NAVY, "width": 2.5}, "thickness": 0.8, "value": pct},
                             },
                         ))
-                    fig.update_layout(margin=dict(l=20, r=20, t=40, b=10))
-                    render_chart(fig, 420)
+                    render_chart(fig, 240, margin=dict(l=12, r=12, t=28, b=8))
                     st.markdown(f'<div class="chart-note">Each gauge = share of total received revenue (₹{total_rev:,.0f}) across connection types by region, circle, channel, and device.</div>', unsafe_allow_html=True)
                 else:
                     st.info("No connection-wise revenue for these filters.")
@@ -1175,7 +1210,7 @@ with page_detail:
                     flow_label = local["flow_metric"]
                     fig = go.Figure(go.Sankey(
                         arrangement="snap",
-                        node=dict(label=channels + types, color=node_colors, pad=22, thickness=22,
+                        node=dict(label=channels + types, color=node_colors, pad=14, thickness=18,
                                   line=dict(color="#fff", width=1),
                                   hovertemplate="%{label}<br>" + flow_label + ": %{value:,.0f}<extra></extra>"),
                         link=dict(
@@ -1186,8 +1221,8 @@ with page_detail:
                                           "<br>Subscribers: %{customdata[1]:,.0f}<br>Transactions: %{customdata[2]:,.0f}<extra></extra>",
                         ),
                     ))
-                    fig.update_layout(font=dict(family="Inter", size=12, color=INK), margin=dict(l=10, r=10, t=10, b=10))
-                    render_chart(fig, 420)
+                    fig.update_layout(font=dict(family="Inter", size=10.5, color=INK))
+                    render_chart(fig, 240, margin=dict(l=6, r=6, t=6, b=6))
                     st.markdown(f'<div class="chart-note">Left = recharge channel, right = transaction type. Band width = {escape(flow_label.lower())}; hover for full details.</div>', unsafe_allow_html=True)
                 else:
                     st.info("No payment-channel records for these filters/date range.")
@@ -1259,6 +1294,44 @@ components.html(
       setInterval(function () {
         doc.querySelectorAll('.kpi-value:not([data-done])').forEach(countUp);
       }, 500);
+
+      // Dynamically size chart heights to match the active viewport height with zero vertical scroll
+      let fitRaf = 0;
+      function fitChartsToViewport() {
+        if (fitRaf) w.cancelAnimationFrame(fitRaf);
+        fitRaf = w.requestAnimationFrame(function () {
+          const main = doc.querySelector('[data-testid="stMain"]');
+          const block = main ? main.querySelector('.block-container') : null;
+          if (!main || !block) return;
+          const panel = main.querySelector('[role="tabpanel"]:not([hidden])') || main;
+          const charts = panel.querySelectorAll('[data-testid="stPlotlyChart"]');
+          if (!charts.length) return;
+          const vh = w.innerHeight || doc.documentElement.clientHeight;
+          const cur = charts[0].getBoundingClientRect().height;
+          if (cur < 50) return;
+          const blockH = block.getBoundingClientRect().height;
+          const nonChartH = blockH - (2 * cur);
+          const next = Math.max(140, Math.min(430, Math.floor((vh - nonChartH - 12) / 2)));
+          if (Math.abs(next - cur) >= 2) {
+            doc.documentElement.style.setProperty('--chart-h', next + 'px');
+          }
+        });
+      }
+      w.addEventListener('resize', fitChartsToViewport);
+      doc.addEventListener('click', function (e) {
+        if (e.target.closest && e.target.closest('[data-baseweb="tab"], [data-testid="stTab"]')) {
+          setTimeout(fitChartsToViewport, 80);
+          setTimeout(fitChartsToViewport, 350);
+        }
+      });
+      if (w.MutationObserver) {
+        const obs = new w.MutationObserver(function () { fitChartsToViewport(); });
+        const mainNode = doc.querySelector('[data-testid="stMain"]') || doc.body;
+        obs.observe(mainNode, { childList: true, subtree: true });
+      }
+      setTimeout(fitChartsToViewport, 120);
+      setTimeout(fitChartsToViewport, 450);
+      setTimeout(fitChartsToViewport, 900);
     })();
     </script>
     """,
