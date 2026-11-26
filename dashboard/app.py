@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import base64
+import os
 import sqlite3
+import tempfile
 from datetime import date, datetime
 from html import escape
 from pathlib import Path
@@ -23,7 +25,7 @@ import streamlit.components.v1 as components
 
 st.set_page_config(
     page_title="Airtel Telecom Analytics | Revenue",
-    page_icon="📡",
+    page_icon="ðŸ“¡",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -349,38 +351,100 @@ st.markdown(
 )
 
 # ---------------------- DATABASE CONNECTION ----------------------
-def find_valid_db() -> Path | None:
-    """Choose the database that actually contains both project analysis tables."""
-    for candidate in DB_CANDIDATES:
-        if not candidate.exists():
-            continue
+REQUIRED_TABLES = {"customer_features", "recharges"}
+
+
+def _is_complete_db(candidate: Path) -> bool:
+    """Check that a file is a readable project database without modifying it."""
+    if not candidate.is_file():
+        return False
+    try:
+        uri = candidate.resolve().as_uri() + "?mode=ro"
+        test = sqlite3.connect(uri, uri=True)
         try:
-            uri = f"file:{candidate.resolve().as_posix()}?mode=ro"
-            test = sqlite3.connect(uri, uri=True)
             names = {r[0] for r in test.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'"
             ).fetchall()}
+        finally:
             test.close()
-            if {"customer_features", "recharges"}.issubset(names):
-                return candidate
-        except sqlite3.Error:
-            continue
+        return REQUIRED_TABLES.issubset(names)
+    except (OSError, sqlite3.Error, ValueError):
+        return False
+
+
+@st.cache_resource(show_spinner="Loading the private Airtel databaseâ€¦")
+def _download_private_db() -> Path | None:
+    """Download the database from private S3 storage when no local copy exists."""
+    try:
+        cfg = st.secrets["database"]
+        bucket, key = str(cfg["s3_bucket"]), str(cfg["s3_key"])
+        region = str(cfg.get("aws_region", "ap-south-1"))
+        access_key = str(cfg["aws_access_key_id"])
+        secret_key = str(cfg["aws_secret_access_key"])
+        session_token = cfg.get("aws_session_token")
+    except (KeyError, FileNotFoundError):
+        return None
+
+    # Keep the downloaded copy outside the app repository and replace it only
+    # after a complete transfer, so a failed download cannot leave a partial DB.
+    cache_dir = Path(tempfile.gettempdir()) / "airtel-telecom-analytics"
+    cache_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(cache_dir, 0o700)
+    destination = cache_dir / "airtel.db"
+    if _is_complete_db(destination):
+        return destination
+
+    temporary = cache_dir / "airtel.db.download"
+    try:
+        import boto3
+
+        client = boto3.client(
+            "s3",
+            region_name=region,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            aws_session_token=str(session_token) if session_token else None,
+        )
+        client.download_file(bucket, key, str(temporary))
+        if not _is_complete_db(temporary):
+            temporary.unlink(missing_ok=True)
+            return None
+        os.replace(temporary, destination)
+        try:
+            os.chmod(destination, 0o600)
+        except OSError:
+            pass
+        return destination
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        return None
+
+
+def find_valid_db() -> Path | None:
+    """Choose the database that actually contains both project analysis tables."""
+    for candidate in DB_CANDIDATES:
+        if _is_complete_db(candidate):
+            return candidate
+    private_db = _download_private_db()
+    if private_db is not None:
+        return private_db
     return None
 
 
 DB_PATH = find_valid_db()
 if DB_PATH is None:
     st.error(
-        "The complete Airtel database was not found. Place the full 123 MB database at "
-        "data/raw/airtel.db. Do not use the small data/airtel.db practice file."
+        "The complete Airtel database was not found. For local use, place it at "
+        "data/raw/airtel.db. In Streamlit Cloud, configure the private S3 database "
+        "credentials in app Secrets. Do not use the small data/airtel.db practice file."
     )
-    st.code("airtel-telecom-analytics/\n  dashboard/app.py\n  data/raw/airtel.db")
+    st.code("[database]\ns3_bucket = \"your-private-bucket\"\ns3_key = \"airtel/airtel.db\"\naws_region = \"ap-south-1\"\naws_access_key_id = \"...\"\naws_secret_access_key = \"...\"")
     st.stop()
 
 
 @st.cache_resource
 def get_connection(db_file: str):
-    uri = f"file:{Path(db_file).resolve().as_posix()}?mode=ro"
+    uri = Path(db_file).resolve().as_uri() + "?mode=ro"
     return sqlite3.connect(uri, uri=True, check_same_thread=False)
 
 
@@ -401,7 +465,7 @@ def q(sql: str, params=()) -> pd.DataFrame:
 def money(value) -> str:
     if value is None or pd.isna(value):
         return "Not available"
-    return f"₹{float(value):,.2f}"
+    return f"â‚¹{float(value):,.2f}"
 
 
 # ---------------------- SMALL COLOUR / UI HELPERS ----------------------
@@ -433,7 +497,7 @@ def shade(i: int, n: int, c0=(151, 0, 30), c1=(240, 98, 124)) -> str:
     return "rgb(%d,%d,%d)" % tuple(round(a + (b - a) * t) for a, b in zip(c0, c1))
 
 
-def render_kpi(label: str, value: str, note: str, icon: str = "📊", muted: bool = False, accent: str = "red"):
+def render_kpi(label: str, value: str, note: str, icon: str = "ðŸ“Š", muted: bool = False, accent: str = "red"):
     acc, soft = ACCENTS.get(accent, ACCENTS["red"])
     cls = "kpi-value muted" if muted else "kpi-value"
     st.markdown(
@@ -452,7 +516,7 @@ def card(key: str):
         return st.container()
 
 
-def render_chart_title(title: str, icon: str = "📈"):
+def render_chart_title(title: str, icon: str = "ðŸ“ˆ"):
     st.markdown(f'<div class="chart-title"><span>{icon}</span><span>{title}</span></div>', unsafe_allow_html=True)
 
 
@@ -650,22 +714,22 @@ def recharge_where(filters: Dict[str, str], start: date, end: date, alias: str =
 # ---------------------- SIDEBAR (MAIN FILTERS) ----------------------
 with st.sidebar:
     st.markdown(f'<div class="side-brand"><img src="{AIRTEL_LOGO_URI}" alt="Airtel logo"><span>airtel</span></div>'
-                '<div class="side-sub">TELECOM ANALYTICS • GROUP 2</div>',
+                '<div class="side-sub">TELECOM ANALYTICS â€¢ GROUP 2</div>',
                 unsafe_allow_html=True)
-    st.markdown("## 🎛️ Main Filters")
+    st.markdown("## ðŸŽ›ï¸ Main Filters")
     date_range = st.date_input(
-        "📅 Date range", value=(DEFAULT_START, DEFAULT_END),
+        "ðŸ“… Date range", value=(DEFAULT_START, DEFAULT_END),
         min_value=MIN_DATE, max_value=MAX_DATE, key="main_date_range"
     )
     if isinstance(date_range, tuple) and len(date_range) == 2:
         MAIN_START, MAIN_END = date_range
     else:
         MAIN_START, MAIN_END = DEFAULT_START, DEFAULT_END
-    main_plan = st.selectbox("📦 Plan", PLANS, key="main_plan")
-    main_connection = st.selectbox("📶 Connection type", CONNECTIONS, key="main_connection")
-    main_region = st.selectbox("📍 Region / circle", REGIONS, key="main_region")
+    main_plan = st.selectbox("ðŸ“¦ Plan", PLANS, key="main_plan")
+    main_connection = st.selectbox("ðŸ“¶ Connection type", CONNECTIONS, key="main_connection")
+    main_region = st.selectbox("ðŸ“ Region / circle", REGIONS, key="main_region")
     st.markdown("---")
-    if st.button("↻ Reset filters", use_container_width=True):
+    if st.button("â†» Reset filters", use_container_width=True):
         for key in list(st.session_state.keys()):
             if key.startswith(("main_", "ov_", "detail_", "dt_")):
                 del st.session_state[key]
@@ -674,9 +738,9 @@ with st.sidebar:
     # Current selection summary (real subscriber count for the chosen filters)
     _sel_where, _sel_params = where_for({"plan": main_plan, "connection": main_connection, "region": main_region}, "cf")
     _sel_count = int(q(f"SELECT COUNT(*) AS n FROM customer_features cf WHERE {_sel_where}", _sel_params).iloc[0]["n"])
-    _sel_text = " • ".join(v for v in (main_plan, main_connection, main_region) if v != "All") or "All plans • All connections • All regions"
+    _sel_text = " â€¢ ".join(v for v in (main_plan, main_connection, main_region) if v != "All") or "All plans â€¢ All connections â€¢ All regions"
     st.markdown(
-        f'<div class="sel-card"><div class="sel-head">ⓘ CURRENT SELECTION</div>'
+        f'<div class="sel-card"><div class="sel-head">â“˜ CURRENT SELECTION</div>'
         f'<div class="sel-text">{escape(_sel_text)}</div>'
         f'<div class="sel-num">{_sel_count:,}</div><div class="sel-lbl">Subscribers in selection</div></div>',
         unsafe_allow_html=True,
@@ -694,7 +758,7 @@ st.markdown(
     '<div><div class="airtel-title">Airtel Telecom Analytics</div>'
     '<div class="airtel-sub">Revenue Performance Dashboard &nbsp;|&nbsp; Group 2 &nbsp;|&nbsp; Domain B</div></div></div>'
     '<div class="banner-right">'
-    f'<div class="chip">📅 {MAIN_START:%d %b %Y} – {MAIN_END:%d %b %Y}</div>'
+    f'<div class="chip">ðŸ“… {MAIN_START:%d %b %Y} â€“ {MAIN_END:%d %b %Y}</div>'
     f'<div class="chip"><span class="live-dot"></span>Last updated: {datetime.now():%d %b %Y, %H:%M}</div>'
     '</div></div>'
     '<div class="reader">Revenue performance, subscriber contribution and plan-level analysis.</div>',
@@ -702,15 +766,15 @@ st.markdown(
 )
 
 # ---------------------- TWO DASHBOARD PAGES ----------------------
-page_overview, page_detail = st.tabs(["▥  Revenue Overview", "⌖  Revenue Detail"])
+page_overview, page_detail = st.tabs(["â–¥  Revenue Overview", "âŒ–  Revenue Detail"])
 
 # ============================================================
-# PAGE 1 — REVENUE OVERVIEW
+# PAGE 1 â€” REVENUE OVERVIEW
 # ============================================================
 with page_overview:
     st.markdown('<div class="section-label">Revenue Overview</div>', unsafe_allow_html=True)
 
-    # The project fixed KPI: received recharge amount from Jan–Jun 2025; independent of filters.
+    # The project fixed KPI: received recharge amount from Janâ€“Jun 2025; independent of filters.
     fixed_total = q("""
         SELECT SUM(amount_inr) AS total
         FROM recharges
@@ -731,20 +795,20 @@ with page_overview:
     card1, card2, card3 = st.columns(3, gap="small")
     with card1:
         render_kpi("TOTAL RECEIVED REVENUE", money(fixed_total),
-                   "January–June 2025 • Fixed validation period • Ignores filters", "💰", accent="red")
+                   "Januaryâ€“June 2025 â€¢ Fixed validation period â€¢ Ignores filters", "ðŸ’°", accent="red")
     with card2:
-        render_kpi("STATISTICAL TEST (T5)", t5_display, t5_note, "🧪", muted=True, accent="indigo")
+        render_kpi("STATISTICAL TEST (T5)", t5_display, t5_note, "ðŸ§ª", muted=True, accent="indigo")
     with card3:
         render_kpi("RECEIVED / SUBSCRIBER / MONTH", money(arpu_result["actual_arpu"]),
-                   f"Average actual monthly ARPU • {months_in_period(MAIN_START, MAIN_END)}-month period", "👥", accent="teal")
+                   f"Average actual monthly ARPU â€¢ {months_in_period(MAIN_START, MAIN_END)}-month period", "ðŸ‘¥", accent="teal")
 
     left, right = st.columns(2, gap="small")
 
-    # Chart 1 — DUMBBELL: stated ARPU vs actual received ARPU for every plan (same data as the old gap bars).
+    # Chart 1 â€” DUMBBELL: stated ARPU vs actual received ARPU for every plan (same data as the old gap bars).
     gap = pd.DataFrame()
     with left:
         with card("ov_gap"):
-            render_chart_title("1. Plan-wise received-minus-stated ARPU gap", "🎯")
+            render_chart_title("1. Plan-wise received-minus-stated ARPU gap", "ðŸŽ¯")
             local = chart_filter_ui(
                 "ov_gap",
                 ("connection", "region", "status"),
@@ -776,33 +840,33 @@ with page_overview:
                     x=gap["stated_arpu"], y=gap["plan"], mode="markers", name="Stated ARPU",
                     marker=dict(size=9, color=NAVY, line=dict(width=1.5, color="#fff")),
                     customdata=gap[["subscribers", "received_arpu"]].to_numpy(),
-                    hovertemplate="%{y}<br>Stated ARPU: ₹%{x:,.2f}<br>Received ARPU: ₹%{customdata[1]:,.2f}"
+                    hovertemplate="%{y}<br>Stated ARPU: â‚¹%{x:,.2f}<br>Received ARPU: â‚¹%{customdata[1]:,.2f}"
                                   "<br>Subscribers: %{customdata[0]:,.0f}<extra></extra>",
                 ))
                 fig.add_trace(go.Scatter(
                     x=gap["received_arpu"], y=gap["plan"], mode="markers+text", name="Received ARPU",
                     marker=dict(size=9, color=[RED if g < 0 else TEAL for g in gap["gap_per_subscriber"]],
                                 line=dict(width=1.5, color="#fff")),
-                    text=[f"{'−' if g < 0 else '+'}₹{abs(g):,.0f}" for g in gap["gap_per_subscriber"]],
+                    text=[f"{'âˆ’' if g < 0 else '+'}â‚¹{abs(g):,.0f}" for g in gap["gap_per_subscriber"]],
                     textposition=["middle left" if g < 0 else "middle right" for g in gap["gap_per_subscriber"]],
                     textfont=dict(size=8.5, color=INK),
                     customdata=gap[["subscribers", "stated_arpu"]].to_numpy(),
-                    hovertemplate="%{y}<br>Received ARPU: ₹%{x:,.2f}<br>Stated ARPU: ₹%{customdata[1]:,.2f}"
+                    hovertemplate="%{y}<br>Received ARPU: â‚¹%{x:,.2f}<br>Stated ARPU: â‚¹%{customdata[1]:,.2f}"
                                   "<br>Subscribers: %{customdata[0]:,.0f}<extra></extra>",
                 ))
-                fig.update_layout(xaxis_title="ARPU (₹ / subscriber / month)", yaxis_title="Plan")
+                fig.update_layout(xaxis_title="ARPU (â‚¹ / subscriber / month)", yaxis_title="Plan")
                 fig.update_yaxes(categoryorder="array", categoryarray=list(gap["plan"])[::-1], tickfont=dict(size=8.5, color=INK))
                 render_chart(fig, 240, margin=dict(l=8, r=16, t=18, b=22))
                 st.markdown('<div class="chart-note">Navy dot = stated ARPU. Coloured dot = received ARPU (red = below stated, green = above). Filter by connection, region, churn status, or gap direction.</div>', unsafe_allow_html=True)
             else:
                 st.info("No records match these chart filters.")
 
-    # Chart 2 — NESTED DONUT: subscriber share (inner ring) vs received-revenue share (outer ring).
+    # Chart 2 â€” NESTED DONUT: subscriber share (inner ring) vs received-revenue share (outer ring).
     share = pd.DataFrame()
     share_dim_label = "connection type"
     with right:
         with card("ov_share"):
-            render_chart_title("2. Subscriber share vs received-revenue share", "🍩")
+            render_chart_title("2. Subscriber share vs received-revenue share", "ðŸ©")
             dim_map = {
                 "Connection type": "cp.connection_type",
                 "Region": "cp.region",
@@ -836,7 +900,7 @@ with page_overview:
                     marker=dict(colors=colors, line=dict(color="#fff", width=2)),
                     textinfo="percent", textfont=dict(size=10.5, color="#fff"),
                     customdata=share[["received_revenue"]].fillna(0).to_numpy(),
-                    hovertemplate="%{label}<br>Revenue share: %{value:.1f}%<br>Received revenue: ₹%{customdata[0]:,.0f}<extra>Outer ring</extra>",
+                    hovertemplate="%{label}<br>Revenue share: %{value:.1f}%<br>Received revenue: â‚¹%{customdata[0]:,.0f}<extra>Outer ring</extra>",
                 ))
                 fig.add_trace(go.Pie(   # inner ring = subscriber share
                     labels=names, values=share["subscriber_share"].fillna(0), hole=0.38, sort=False,
@@ -856,12 +920,12 @@ with page_overview:
             else:
                 st.info("No segment records match these chart filters.")
 
-    # Chart 3 — REVENUE FUNNEL across the SQL NTILE(10) deciles.
+    # Chart 3 â€” REVENUE FUNNEL across the SQL NTILE(10) deciles.
     deciles = pd.DataFrame()
     chart3_col, take_col = st.columns([2.2, 1], gap="small")
     with chart3_col:
         with card("ov_decile"):
-            render_chart_title("3. Revenue contribution across subscriber deciles", "🔻")
+            render_chart_title("3. Revenue contribution across subscriber deciles", "ðŸ”»")
             metric_map = {
                 "Period ARPU": "cp.actual_arpu_period",
                 "Received revenue": "cp.received_revenue",
@@ -872,7 +936,7 @@ with page_overview:
                 ("plan", "connection", "region"),
                 MAIN_FILTERS,
                 extras={
-                    "decile_slice": ("Decile focus", ["All 10 deciles", "Top 5 (1–5)", "Bottom 5 (6–10)"]),
+                    "decile_slice": ("Decile focus", ["All 10 deciles", "Top 5 (1â€“5)", "Bottom 5 (6â€“10)"]),
                     "decile_metric": ("Rank deciles by", list(metric_map.keys())),
                 },
             )
@@ -894,9 +958,9 @@ with page_overview:
             deciles = q(decile_sql, [*decile_params])
             if not deciles.empty:
                 d = deciles.fillna(0)
-                if local["decile_slice"] == "Top 5 (1–5)":
+                if local["decile_slice"] == "Top 5 (1â€“5)":
                     d = d[d["decile"] <= 5]
-                elif local["decile_slice"] == "Bottom 5 (6–10)":
+                elif local["decile_slice"] == "Bottom 5 (6â€“10)":
                     d = d[d["decile"] >= 6]
                 n = len(d)
                 fig = go.Figure(go.Funnel(
@@ -908,26 +972,26 @@ with page_overview:
                     connector=dict(line=dict(color="#F5C1CA", width=1), fillcolor="rgba(245,193,202,.35)"),
                     customdata=d[["subscribers", "received_revenue"]].to_numpy(),
                     hovertemplate="%{y}<br>Revenue share: %{x:.1f}%<br>Subscribers: %{customdata[0]:,.0f}"
-                                  "<br>Received revenue: ₹%{customdata[1]:,.0f}<extra></extra>",
+                                  "<br>Received revenue: â‚¹%{customdata[1]:,.0f}<extra></extra>",
                 ))
                 render_chart(fig, 240, margin=dict(l=12, r=12, t=4, b=4))
                 st.markdown(f'<div class="chart-note">Deciles are calculated in SQL with NTILE(10), ranked by {escape(local["decile_metric"].lower())} from highest to lowest.</div>', unsafe_allow_html=True)
             else:
                 st.info("No subscriber records match the decile chart filters.")
 
-    # Key takeaways — every line is computed from the charts' own data (nothing invented).
+    # Key takeaways â€” every line is computed from the charts' own data (nothing invented).
     facts: List[Tuple[str, str]] = []   # (html, plain text)
     if not gap.empty:
         worst, best = gap.iloc[0], gap.iloc[-1]
         word = "below" if worst["gap_per_subscriber"] < 0 else "above"
         facts.append((
             f"<b>{escape(str(worst['plan']))}</b> has the widest shortfall: received ARPU is "
-            f"₹{abs(worst['gap_per_subscriber']):,.0f} {word} the stated ARPU.",
-            f"{worst['plan']} has the widest ARPU shortfall (₹{abs(worst['gap_per_subscriber']):,.0f} {word} stated).",
+            f"â‚¹{abs(worst['gap_per_subscriber']):,.0f} {word} the stated ARPU.",
+            f"{worst['plan']} has the widest ARPU shortfall (â‚¹{abs(worst['gap_per_subscriber']):,.0f} {word} stated).",
         ))
         if len(gap) > 1:
             facts.append((
-                f"<b>{escape(str(best['plan']))}</b> is closest to its stated ARPU (gap ₹{best['gap_per_subscriber']:,.0f}).",
+                f"<b>{escape(str(best['plan']))}</b> is closest to its stated ARPU (gap â‚¹{best['gap_per_subscriber']:,.0f}).",
                 f"{best['plan']} is closest to its stated ARPU.",
             ))
     if not deciles.empty and pd.notna(deciles["revenue_share"]).any():
@@ -953,19 +1017,19 @@ with page_overview:
             for i, (html_text, _) in enumerate(facts, start=1)
         )
         st.markdown(
-            f'<div class="take-card"><div class="take-title">🎯 Key Takeaways</div>{body}</div>',
+            f'<div class="take-card"><div class="take-title">ðŸŽ¯ Key Takeaways</div>{body}</div>',
             unsafe_allow_html=True,
         )
 
     plain = [p for _, p in facts if p]
     if plain:
         st.markdown(
-            f'<div class="insight-bar">📊 <b>Overall Insight:</b> {escape(" ".join(plain[:3]))}</div>',
+            f'<div class="insight-bar">ðŸ“Š <b>Overall Insight:</b> {escape(" ".join(plain[:3]))}</div>',
             unsafe_allow_html=True,
         )
 
 # ============================================================
-# PAGE 2 — REVENUE DETAIL
+# PAGE 2 â€” REVENUE DETAIL
 # ============================================================
 with page_detail:
     main_where, main_params = where_for(MAIN_FILTERS, "cf")
@@ -999,18 +1063,18 @@ with page_detail:
 
         k1, k2, k3 = st.columns(3, gap="small")
         with k1:
-            render_kpi("PLAN SUBSCRIBERS", f"{int(summary['subscribers']):,}", "Customer-level records in selected plan", "👥", accent="indigo")
+            render_kpi("PLAN SUBSCRIBERS", f"{int(summary['subscribers']):,}", "Customer-level records in selected plan", "ðŸ‘¥", accent="indigo")
         with k2:
-            render_kpi("RECEIVED REVENUE", money(summary["revenue"]), f"{MAIN_START} to {MAIN_END}", "💰", accent="red")
+            render_kpi("RECEIVED REVENUE", money(summary["revenue"]), f"{MAIN_START} to {MAIN_END}", "ðŸ’°", accent="red")
         with k3:
-            render_kpi("ACTUAL MONTHLY ARPU", money(summary["actual_arpu"]), f"Stated ARPU reference: {money(summary['stated_arpu'])}", "📈", accent="teal")
+            render_kpi("ACTUAL MONTHLY ARPU", money(summary["actual_arpu"]), f"Stated ARPU reference: {money(summary['stated_arpu'])}", "ðŸ“ˆ", accent="teal")
 
         left, right = st.columns(2, gap="small")
 
-        # Detail chart 1 — SUNBURST: plan family (Prepaid / Postpaid) → plan, sized by received revenue.
+        # Detail chart 1 â€” SUNBURST: plan family (Prepaid / Postpaid) â†’ plan, sized by received revenue.
         with left:
             with card("dt_compare"):
-                render_chart_title("1. Plan-wise received-revenue comparison", "☀️")
+                render_chart_title("1. Plan-wise received-revenue comparison", "â˜€ï¸")
                 local = chart_filter_ui("detail_compare", ("connection", "region", "circle", "status"), MAIN_FILTERS)
                 compare_filters = {
                     "plan": "All",
@@ -1043,17 +1107,17 @@ with page_detail:
                         ids=ids, labels=labels, parents=parents, values=values, branchvalues="total",
                         marker=dict(colors=colors, line=dict(color="#fff", width=1.5)),
                         insidetextorientation="radial", textfont=dict(size=10, color=INK),
-                        hovertemplate="%{label}<br>Received revenue: ₹%{value:,.0f}<br>%{percentParent:.1%} of its group<extra></extra>",
+                        hovertemplate="%{label}<br>Received revenue: â‚¹%{value:,.0f}<br>%{percentParent:.1%} of its group<extra></extra>",
                     ))
                     render_chart(fig, 240, margin=dict(l=4, r=4, t=4, b=4))
                     st.markdown('<div class="chart-note">Inner ring = plan family, outer ring = plans (size = received revenue). Selected plan is gold; filter by connection, region, circle, or churn status.</div>', unsafe_allow_html=True)
                 else:
                     st.info("No plan comparison data for these filters.")
 
-        # Detail chart 2 — WATERFALL of month-on-month change in received revenue.
+        # Detail chart 2 â€” WATERFALL of month-on-month change in received revenue.
         with right:
             with card("dt_monthly"):
-                render_chart_title("2. Monthly received-revenue trend", "🌊")
+                render_chart_title("2. Monthly received-revenue trend", "ðŸŒŠ")
                 local = chart_filter_ui(
                     "detail_monthly",
                     ("connection", "region", "channel", "txn_type"),
@@ -1085,12 +1149,12 @@ with page_detail:
                     xs = [months[0]] + months[1:]
                     ys = [rev[0]] + [rev[i] - rev[i - 1] for i in range(1, len(rev))]
                     measure = ["absolute"] + ["relative"] * (len(rev) - 1)
-                    texts = [f"₹{rev[0]:,.0f}"] + [f"{ys[i]:+,.0f}" for i in range(1, len(rev))]
+                    texts = [f"â‚¹{rev[0]:,.0f}"] + [f"{ys[i]:+,.0f}" for i in range(1, len(rev))]
                     if len(rev) > 1:
                         xs.append("Latest")
                         ys.append(0)
                         measure.append("total")
-                        texts.append(f"₹{rev[-1]:,.0f}")
+                        texts.append(f"â‚¹{rev[-1]:,.0f}")
                     fig = go.Figure(go.Waterfall(
                         x=xs, y=ys, measure=measure, text=texts, textposition="outside",
                         textfont=dict(size=9.5, color=INK), cliponaxis=False,
@@ -1098,7 +1162,7 @@ with page_detail:
                         totals={"marker": {"color": NAVY}}, connector={"line": {"color": "#AAB0B8", "dash": "dot"}},
                         hovertemplate="%{x}<br>%{text}<extra></extra>",
                     ))
-                    fig.update_layout(showlegend=False, xaxis_title="", yaxis_title="Received revenue (₹)")
+                    fig.update_layout(showlegend=False, xaxis_title="", yaxis_title="Received revenue (â‚¹)")
                     fig.update_yaxes(showgrid=True, gridcolor=GRID)
                     render_chart(fig, 240, margin=dict(l=30, r=10, t=20, b=22))
                     st.markdown('<div class="chart-note">First bar = first month; green/red = month-on-month change; last bar = latest month. Filter by channel, txn type, or plan scope.</div>', unsafe_allow_html=True)
@@ -1107,10 +1171,10 @@ with page_detail:
 
         left2, right2 = st.columns(2, gap="small")
 
-        # Detail chart 3 — GAUGES: share of received revenue for each connection type.
+        # Detail chart 3 â€” GAUGES: share of received revenue for each connection type.
         with left2:
             with card("dt_connection"):
-                render_chart_title("3. Connection-wise received revenue", "⏱️")
+                render_chart_title("3. Connection-wise received revenue", "â±ï¸")
                 local = chart_filter_ui("detail_connection", ("region", "circle", "channel", "device"), MAIN_FILTERS)
                 conn_filters = {
                     "plan": "All",
@@ -1144,7 +1208,7 @@ with page_detail:
                             number={"suffix": "%", "valueformat": ".1f", "font": {"size": 24, "color": INK}},
                             title={"font": {"size": 11.5},
                                    "text": f"<b>{escape(str(row['connection_type']))}</b><br>"
-                                           f"<span style='font-size:10px;color:#5E6671'>₹{row['revenue']:,.0f} • {int(row['subscribers']):,} subs</span>"},
+                                           f"<span style='font-size:10px;color:#5E6671'>â‚¹{row['revenue']:,.0f} â€¢ {int(row['subscribers']):,} subs</span>"},
                             domain={"x": [i / n_g + 0.03, (i + 1) / n_g - 0.03], "y": [0.08, 0.74]},
                             gauge={
                                 "axis": {"range": [0, 100], "tickfont": {"size": 8.5, "color": "#5E6671"}},
@@ -1155,16 +1219,16 @@ with page_detail:
                             },
                         ))
                     render_chart(fig, 240, margin=dict(l=12, r=12, t=28, b=8))
-                    st.markdown(f'<div class="chart-note">Each gauge = share of total received revenue (₹{total_rev:,.0f}) across connection types by region, circle, channel, and device.</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="chart-note">Each gauge = share of total received revenue (â‚¹{total_rev:,.0f}) across connection types by region, circle, channel, and device.</div>', unsafe_allow_html=True)
                 else:
                     st.info("No connection-wise revenue for these filters.")
 
-        # Detail chart 4 — SANKEY: received revenue flowing from recharge channel to transaction type.
+        # Detail chart 4 â€” SANKEY: received revenue flowing from recharge channel to transaction type.
         with right2:
             with card("dt_payment"):
-                render_chart_title("4. Subscriber payment / recharge analysis", "🔀")
+                render_chart_title("4. Subscriber payment / recharge analysis", "ðŸ”€")
                 flow_options = {
-                    "Received revenue (₹)": ("revenue", "₹{:,.0f}"),
+                    "Received revenue (â‚¹)": ("revenue", "â‚¹{:,.0f}"),
                     "Transactions": ("transactions", "{:,.0f} txns"),
                     "Unique subscribers": ("subscribers", "{:,.0f} subs"),
                 }
@@ -1217,7 +1281,7 @@ with page_detail:
                             source=src_i, target=tgt_i, value=payment[flow_col].astype(float).tolist(),
                             color=[rgba(ch_col[str(c)], 0.38) for c in payment["channel"]],
                             customdata=payment[["revenue", "subscribers", "transactions"]].to_numpy(),
-                            hovertemplate="%{source.label} → %{target.label}<br>Received revenue: ₹%{customdata[0]:,.0f}"
+                            hovertemplate="%{source.label} â†’ %{target.label}<br>Received revenue: â‚¹%{customdata[0]:,.0f}"
                                           "<br>Subscribers: %{customdata[1]:,.0f}<br>Transactions: %{customdata[2]:,.0f}<extra></extra>",
                         ),
                     ))
@@ -1230,9 +1294,9 @@ with page_detail:
 # --------------------------- FOOTER ---------------------------
 st.markdown(
     '<div class="foot">'
-    '<b>AIRTEL TELECOM ANALYTICS • GROUP 2 • DOMAIN B — REVENUE.</b> '
+    '<b>AIRTEL TELECOM ANALYTICS â€¢ GROUP 2 â€¢ DOMAIN B â€” REVENUE.</b> '
     'Received revenue is recorded recharge/payment value, not billed revenue. '
-    'Fixed Jan–Jun 2025 KPI ignores filters. T5 remains unavailable until the validated test result is supplied.'
+    'Fixed Janâ€“Jun 2025 KPI ignores filters. T5 remains unavailable until the validated test result is supplied.'
     '</div>',
     unsafe_allow_html=True,
 )
@@ -1337,3 +1401,4 @@ components.html(
     """,
     height=0,
 )
+
