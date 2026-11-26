@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import base64
+import json
 import os
 import sqlite3
 import tempfile
+import zipfile
 from datetime import date, datetime
 from html import escape
 from pathlib import Path
@@ -375,27 +377,15 @@ def _is_complete_db(candidate: Path) -> bool:
 
 @st.cache_resource(show_spinner="Loading the private Airtel databaseâ€¦")
 def _download_private_db() -> Path | None:
-    """Download the database from private S3 storage when no local copy exists."""
+    """Download the database from private Drive or S3 when no local copy exists."""
     global DB_LOAD_ERROR
 
     try:
         cfg = st.secrets["database"]
-        bucket, key = str(cfg["s3_bucket"]), str(cfg["s3_key"])
-        region = str(cfg.get("aws_region", "ap-south-1"))
-        access_key = str(cfg["aws_access_key_id"])
-        secret_key = str(cfg["aws_secret_access_key"])
-        session_token = cfg.get("aws_session_token")
     except (KeyError, FileNotFoundError):
         DB_LOAD_ERROR = (
-            "Streamlit Cloud Secrets are not configured. Add the [database] "
-            "S3 settings shown below, then save and reboot the app."
-        )
-        return None
-
-    if not all((bucket.strip(), key.strip(), region.strip(), access_key.strip(), secret_key.strip())):
-        DB_LOAD_ERROR = (
-            "The [database] Secrets section is incomplete. Set the bucket, object key, "
-            "region, access key, and secret key, then save and reboot the app."
+            "Streamlit Cloud Secrets are not configured. Add the private Google Drive "
+            "settings shown below, then save and reboot the app."
         )
         return None
 
@@ -415,21 +405,79 @@ def _download_private_db() -> Path | None:
             return destination
 
         temporary = cache_dir / "airtel.db.download"
-        import boto3
+        file_id = str(cfg.get("google_drive_file_id", "")).strip()
+        service_account_json = str(cfg.get("google_service_account_json", "")).strip()
+        if file_id:
+            if not service_account_json:
+                DB_LOAD_ERROR = (
+                    "The Google Drive file ID is set, but the service-account credential "
+                    "is missing from Streamlit Secrets."
+                )
+                return None
+            from google.auth.transport.requests import AuthorizedSession
+            from google.oauth2 import service_account
 
-        client = boto3.client(
-            "s3",
-            region_name=region,
-            aws_access_key_id=access_key,
-            aws_secret_access_key=secret_key,
-            aws_session_token=str(session_token) if session_token else None,
-        )
-        client.download_file(bucket, key, str(temporary))
+            account_info = json.loads(service_account_json)
+            credentials = service_account.Credentials.from_service_account_info(
+                account_info,
+                scopes=["https://www.googleapis.com/auth/drive.readonly"],
+            )
+            archive_path = cache_dir / "airtel_database.zip.download"
+            try:
+                with AuthorizedSession(credentials) as session:
+                    response = session.get(
+                        f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media",
+                        stream=True,
+                        timeout=(15, 180),
+                    )
+                    if response.status_code in (401, 403):
+                        DB_LOAD_ERROR = (
+                            "Google Drive denied access. Share the ZIP with the service-account "
+                            "email as a Viewer, and confirm the Drive API is enabled."
+                        )
+                        return None
+                    response.raise_for_status()
+                    with archive_path.open("wb") as output:
+                        for chunk in response.iter_content(chunk_size=1024 * 1024):
+                            if chunk:
+                                output.write(chunk)
+                with zipfile.ZipFile(archive_path) as archive:
+                    members = [info for info in archive.infolist() if Path(info.filename).name == "airtel.db"]
+                    if len(members) != 1 or members[0].file_size > 1024 * 1024 * 1024:
+                        DB_LOAD_ERROR = "The Drive ZIP must contain one Airtel database file smaller than 1 GB."
+                        return None
+                    with archive.open(members[0]) as source, temporary.open("wb") as output:
+                        while chunk := source.read(1024 * 1024):
+                            output.write(chunk)
+            finally:
+                archive_path.unlink(missing_ok=True)
+        else:
+            bucket, key = str(cfg.get("s3_bucket", "")).strip(), str(cfg.get("s3_key", "")).strip()
+            region = str(cfg.get("aws_region", "ap-south-1")).strip()
+            access_key = str(cfg.get("aws_access_key_id", "")).strip()
+            secret_key = str(cfg.get("aws_secret_access_key", "")).strip()
+            session_token = cfg.get("aws_session_token")
+            if not all((bucket, key, region, access_key, secret_key)):
+                DB_LOAD_ERROR = (
+                    "Add either the private Google Drive settings or complete S3 settings "
+                    "to Streamlit Secrets."
+                )
+                return None
+            import boto3
+
+            client = boto3.client(
+                "s3",
+                region_name=region,
+                aws_access_key_id=access_key,
+                aws_secret_access_key=secret_key,
+                aws_session_token=str(session_token) if session_token else None,
+            )
+            client.download_file(bucket, key, str(temporary))
         if not _is_complete_db(temporary):
             temporary.unlink(missing_ok=True)
             DB_LOAD_ERROR = (
-                "The S3 object downloaded, but it is not a valid Airtel analysis database. "
-                "Check that the object key points to the full database file."
+                "The downloaded file is not a valid Airtel analysis database. Check that "
+                "the Drive ZIP contains airtel.db or that the S3 key points to the raw database."
             )
             return None
         os.replace(temporary, destination)
@@ -444,7 +492,12 @@ def _download_private_db() -> Path | None:
             temporary.unlink(missing_ok=True)
         response = getattr(exc, "response", {})
         error_code = response.get("Error", {}).get("Code") if isinstance(response, dict) else None
-        if error_code == "AccessDenied":
+        http_status = getattr(response, "status_code", None)
+        if isinstance(exc, json.JSONDecodeError):
+            DB_LOAD_ERROR = "The Google service-account JSON in Secrets is invalid. Paste the complete downloaded JSON file."
+        elif http_status == 404:
+            DB_LOAD_ERROR = "Google Drive could not find that file. Check the file ID in Secrets."
+        elif error_code == "AccessDenied":
             DB_LOAD_ERROR = "AWS denied access. Allow this key to read the configured S3 object."
         elif error_code in {"NoSuchBucket", "NoSuchKey", "404"}:
             DB_LOAD_ERROR = "The configured S3 bucket or object key was not found. Check both values in Secrets."
@@ -452,8 +505,8 @@ def _download_private_db() -> Path | None:
             DB_LOAD_ERROR = "The AWS credentials in Secrets are invalid or expired. Update them and reboot the app."
         else:
             DB_LOAD_ERROR = (
-                "The private S3 database could not be downloaded. Verify the bucket, region, "
-                "read permission, and AWS credentials; see Streamlit Cloud logs for details. "
+                "The private database could not be downloaded. Verify the source settings, "
+                "read permission, and credentials; see Streamlit Cloud logs for details. "
                 f"Error type: {type(exc).__name__}."
             )
         return None
@@ -481,11 +534,8 @@ if DB_PATH is None:
         st.warning(DB_LOAD_ERROR)
     st.code(
         '[database]\n'
-        's3_bucket = "YOUR_PRIVATE_BUCKET_NAME"\n'
-        's3_key = "airtel/airtel.db"\n'
-        'aws_region = "ap-south-1"\n'
-        'aws_access_key_id = "YOUR_READ_ONLY_ACCESS_KEY"\n'
-        'aws_secret_access_key = "YOUR_READ_ONLY_SECRET_KEY"'
+        'google_drive_file_id = "1EBviAsS6ebKOwJaMCoAWkzGN1CY5YBJN"\n'
+        "google_service_account_json = '''PASTE_THE_COMPLETE_SERVICE_ACCOUNT_JSON_HERE'''"
     )
     st.stop()
 
