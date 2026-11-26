@@ -14,37 +14,33 @@ The small `data/airtel.db` file is only a practice database.
 
 ## Streamlit Cloud database setup
 
-The app reads `data/raw/airtel.db` for local use. In Streamlit Cloud, it can
-download the database at startup from a private Amazon S3 object.
+The app reads `data/raw/airtel.db` locally. In Streamlit Cloud, it can download
+the ZIP from a **restricted** Google Drive file and read `airtel.db` from it.
+The Drive file must be shared with a read-only Google service account; do not
+set it to â€œAnyone with the link.â€
 
-1. In AWS, create a private S3 bucket with **Block Public Access** enabled and
-   upload the full database as `airtel/airtel.db` (or choose another object
-   key). Keep the object private; do not enable public access or public links.
-2. Create an AWS identity whose policy allows only `s3:GetObject` for this
-   database object (and no write or public-access permissions). Keep the
-   access key and secret key private.
-3. In Streamlit Community Cloud, open **My apps â†’ this app â†’ â‹® â†’ Settings â†’
-   Secrets**. Paste the TOML below, replacing the bucket and credentials. These
-   values belong only in the app's Secrets settings, never in GitHub or source
-   files:
+1. In Google Cloud Console, create or select a project, enable the Google Drive
+   API, then create a service account and download its JSON key.
+2. Copy the service account's `client_email` from that JSON. In Google Drive,
+   share `airtel_database.zip` with that email as **Viewer**. Keep General
+   access set to **Restricted**.
+3. In Streamlit Community Cloud, open **Manage app â†’ Settings â†’ Secrets** and
+   add the file ID and the complete service account JSON. Paste the JSON between
+   triple single quotes, preserving it exactly:
 
    ```toml
    [database]
-   s3_bucket = "your-private-bucket"
-   s3_key = "airtel/airtel.db"
-   aws_region = "ap-south-1"
-   aws_access_key_id = "YOUR_READ_ONLY_ACCESS_KEY"
-   aws_secret_access_key = "YOUR_READ_ONLY_SECRET_KEY"
+   google_drive_file_id = "1EBviAsS6ebKOwJaMCoAWkzGN1CY5YBJN"
+   google_service_account_json = '''PASTE THE COMPLETE SERVICE ACCOUNT JSON HERE'''
    ```
 
-4. Click **Save**, then **Reboot app** from the app menu. Streamlit Cloud will
-   download the private S3 copy into its temporary app storage and validate its
-   required tables. Locally, the app continues to use `data/raw/airtel.db`.
-   The small practice database is rejected because it lacks the required
-   analysis tables.
+   Keep the JSON key only in Streamlit Secrets; never commit or send it in chat.
+4. Click **Save**, then **Reboot app**. The app downloads the private ZIP to
+   temporary storage, validates the database tables, and opens the database in
+   read-only mode. The small practice database is rejected.
 
-Never commit AWS credentials or the full database to the repository. If the
-credentials are rotated, update app Secrets and reboot it.
+The app also supports private S3 credentials as an alternate source. Never
+commit credentials or the full database to the repository.
 
 ## Progress
 
