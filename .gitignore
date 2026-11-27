@@ -1,6 +1,7 @@
 data/raw/
 data/processed/
 *.db
+!data/airtel_dashboard_slim.db
 *.csv
 .venv/
 __pycache__/
