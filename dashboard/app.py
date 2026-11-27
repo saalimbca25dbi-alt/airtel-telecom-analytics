@@ -20,7 +20,7 @@ import streamlit.components.v1 as components
 # AIRTEL TELECOM ANALYTICS | GROUP 2 | DOMAIN B - REVENUE
 # File: project_root/dashboard/app.py
 # Run:  streamlit run dashboard/app.py
-# Data: project_root/data/raw/airtel.db
+# Data: project_root/data/airtel_dashboard_slim.db (fallback: data/raw/airtel.db)
 # NOTE: all SQL / data logic is unchanged. Only the look, the chart
 #       types and the animations were redesigned.
 # ============================================================
@@ -34,8 +34,12 @@ st.set_page_config(
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
-# data/airtel.db is a small practice database. The complete DB is raw/airtel.db.
-DB_CANDIDATES = [DATA_DIR / "raw" / "airtel.db", DATA_DIR / "airtel.db"]
+# Prefer the slim dashboard DB in data/; fall back to raw/airtel.db when needed.
+DB_CANDIDATES = [
+    DATA_DIR / "airtel_dashboard_slim.db",
+    DATA_DIR / "raw" / "airtel.db",
+    DATA_DIR / "airtel.db",
+]
 RED, DARK_RED, PINK = "#E0002B", "#97001E", "#F5A3B1"
 NAVY, INDIGO, TEAL, AMBER = "#2B2F5E", "#3D5AFE", "#00A878", "#FFB400"
 INK, GRID = "#20242B", "#ECEDF1"
@@ -55,7 +59,7 @@ st.markdown(
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
     /* ---------- base + subtle animated background colour ---------- */
-    :root {color-scheme: light; --chart-h: clamp(145px, calc((100vh - 390px) / 2), 380px);}
+    :root {color-scheme: light; --chart-h: clamp(220px, calc((100vh - 360px) / 2), 330px);}
     html, body, [class*="css"] {font-family:Inter,Arial,sans-serif;}
     .stApp {
         isolation:isolate;
@@ -255,9 +259,15 @@ st.markdown(
         display:flex;align-items:center;gap:7px;box-shadow:0 3px 8px rgba(200,16,46,.18);line-height:1.2;
     }
     .chart-note {font-size:9px;color:#5E6671;margin:0 0 0 2px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    div[data-testid="stPlotlyChart"],
+    div[data-testid="stPlotlyChart"] > div,
+    div[data-testid="stPlotlyChart"] .js-plotly-plot,
+    div[data-testid="stPlotlyChart"] .plot-container,
+    div[data-testid="stPlotlyChart"] .svg-container {
+        width:100%!important;height:var(--chart-h)!important;min-height:220px!important;
+    }
     div[data-testid="stPlotlyChart"] {
-        background:transparent;border:none;padding:0;margin:0!important;
-        height:var(--chart-h)!important;min-height:145px!important;
+        background:transparent;border:none;padding:0;margin:0!important;overflow:hidden;
     }
 
     /* ---------- tabs as pills (Streamlit 1.67 React Aria + BaseWeb fallback) ---------- */
@@ -353,7 +363,7 @@ st.markdown(
 )
 
 # ---------------------- DATABASE CONNECTION ----------------------
-REQUIRED_TABLES = {"customer_features", "recharges"}
+REQUIRED_TABLES = {"customer_features"}
 DB_LOAD_ERROR: str | None = None
 
 
@@ -526,9 +536,9 @@ def find_valid_db() -> Path | None:
 DB_PATH = find_valid_db()
 if DB_PATH is None:
     st.error(
-        "The complete Airtel database was not found. For local use, place it at "
-        "data/raw/airtel.db. In Streamlit Cloud, configure private Google Drive access "
-        "credentials in app Secrets. Do not use the small data/airtel.db practice file."
+        "The Airtel analysis database was not found. For local use, place it at "
+        "data/airtel_dashboard_slim.db (or data/raw/airtel.db). In Streamlit Cloud, "
+        "configure private Google Drive access credentials in app Secrets."
     )
     if DB_LOAD_ERROR:
         st.warning(DB_LOAD_ERROR)
@@ -622,7 +632,7 @@ def render_chart(fig, height: int = 240, margin: dict | None = None):
     existing_margin = fig.layout.margin.to_plotly_json() if fig.layout.margin else {}
     resolved_margin = margin or existing_margin or dict(l=24, r=12, t=16, b=24)
     fig.update_layout(
-        template="plotly_white", autosize=True, height=height,
+        template="plotly_white", autosize=True, height=None,
         margin=resolved_margin,
         paper_bgcolor="rgba(255,255,255,0)", plot_bgcolor="#FFFFFF",
         font=dict(family="Inter", size=10, color=INK),
@@ -634,31 +644,41 @@ def render_chart(fig, height: int = 240, margin: dict | None = None):
                      tickfont=dict(color=INK, size=9), title_font=dict(color=INK, size=9.5))
     fig.update_yaxes(showgrid=False, zerolinecolor="#B8BDC5", automargin=True,
                      tickfont=dict(color=INK, size=9), title_font=dict(color=INK, size=9.5))
-    st.plotly_chart(fig, width="stretch", config={"displayModeBar": False, "responsive": True})
+    try:
+        st.plotly_chart(
+            fig, width="stretch", height="stretch",
+            config={"displayModeBar": False, "responsive": True},
+        )
+    except TypeError:
+        fig.update_layout(height=height)
+        st.plotly_chart(fig, width="stretch", config={"displayModeBar": False, "responsive": True})
 
 
 # ---------------------- VERIFY DATABASE SCHEMA ----------------------
+DB_SOURCE_LABEL = DB_PATH.relative_to(ROOT).as_posix() if DB_PATH.is_relative_to(ROOT) else DB_PATH.name
+
 tables = set(q(
     "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
 )["name"].tolist())
-required_tables = {"customer_features", "recharges"}
+required_tables = {"customer_features"}
 if not required_tables.issubset(tables):
-    st.error("The selected database does not contain the full revenue-analysis tables.")
+    st.error("The selected database does not contain the Airtel analysis tables.")
     st.write("Tables found:", sorted(tables))
     st.stop()
 
 feature_cols = set(q("PRAGMA table_info(customer_features)")["name"].tolist())
-recharge_cols = set(q("PRAGMA table_info(recharges)")["name"].tolist())
 required_feature_cols = {
     "customer_id", "region", "plan_name", "connection_type",
     "actual_arpu_6m", "stated_arpu", "recharge_total_6m"
 }
-required_recharge_cols = {"customer_id", "recharge_date", "amount_inr", "channel", "txn_type"}
-if not required_feature_cols.issubset(feature_cols) or not required_recharge_cols.issubset(recharge_cols):
+if not required_feature_cols.issubset(feature_cols):
     st.error("The database schema differs from the Airtel revenue-analysis schema.")
     st.write("customer_features columns:", sorted(feature_cols))
-    st.write("recharges columns:", sorted(recharge_cols))
     st.stop()
+
+required_recharge_cols = {"customer_id", "recharge_date", "amount_inr", "channel", "txn_type"}
+recharge_cols = set(q("PRAGMA table_info(recharges)")["name"].tolist()) if "recharges" in tables else set()
+HAS_RECHARGES = "recharges" in tables and required_recharge_cols.issubset(recharge_cols)
 
 # ---------------------- OPTIONS AND DATE LIMITS ----------------------
 def get_options(sql: str) -> List[str]:
@@ -672,13 +692,22 @@ CIRCLES = get_options("SELECT DISTINCT circle_name AS value FROM customer_featur
 DEVICES = get_options("SELECT DISTINCT device_type AS value FROM customer_features WHERE device_type IS NOT NULL ORDER BY value")
 AGE_BANDS = get_options("SELECT DISTINCT age_band AS value FROM customer_features WHERE age_band IS NOT NULL ORDER BY value")
 ACQ_CHANNELS = get_options("SELECT DISTINCT acquisition_channel AS value FROM customer_features WHERE acquisition_channel IS NOT NULL ORDER BY value")
-RECHARGE_CHANNELS = get_options("SELECT DISTINCT channel AS value FROM recharges WHERE channel IS NOT NULL ORDER BY value")
-TXN_TYPES = get_options("SELECT DISTINCT txn_type AS value FROM recharges WHERE txn_type IS NOT NULL ORDER BY value")
+RECHARGE_CHANNELS = (
+    get_options("SELECT DISTINCT channel AS value FROM recharges WHERE channel IS NOT NULL ORDER BY value")
+    if HAS_RECHARGES else ["All"]
+)
+TXN_TYPES = (
+    get_options("SELECT DISTINCT txn_type AS value FROM recharges WHERE txn_type IS NOT NULL ORDER BY value")
+    if HAS_RECHARGES else ["All"]
+)
 STATUS_OPTIONS = ["All", "Active only", "Churned only"]
 
-limits = q("SELECT MIN(date(recharge_date)) AS mn, MAX(date(recharge_date)) AS mx FROM recharges").iloc[0]
-MIN_DATE = pd.to_datetime(limits["mn"]).date()
-MAX_DATE = pd.to_datetime(limits["mx"]).date()
+if HAS_RECHARGES:
+    limits = q("SELECT MIN(date(recharge_date)) AS mn, MAX(date(recharge_date)) AS mx FROM recharges").iloc[0]
+    MIN_DATE = pd.to_datetime(limits["mn"]).date()
+    MAX_DATE = pd.to_datetime(limits["mx"]).date()
+else:
+    MIN_DATE, MAX_DATE = date(2025, 1, 1), date(2025, 6, 30)
 DEFAULT_START = max(MIN_DATE, date(2025, 1, 1))
 DEFAULT_END = min(MAX_DATE, date(2025, 6, 30))
 if DEFAULT_START > DEFAULT_END:
@@ -714,6 +743,16 @@ def where_for(filters: Dict[str, str], alias: str = "cp") -> Tuple[str, List]:
 
 
 def customer_period_cte(start: date, end: date) -> str:
+    if not HAS_RECHARGES:
+        return """
+        WITH customer_period AS (
+            SELECT cf.*,
+                   COALESCE(cf.recharge_total_6m, 0) AS received_revenue,
+                   COALESCE(cf.recharge_count, 0) AS recharge_transactions,
+                   COALESCE(cf.actual_arpu_6m, COALESCE(cf.recharge_total_6m, 0) * 1.0 / 6) AS actual_arpu_period
+            FROM customer_features cf
+        )
+        """
     months = months_in_period(start, end)
     return f"""
     WITH revenue_by_customer AS (
@@ -844,7 +883,7 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
     st.markdown("---")
-    st.caption("Source: data/raw/airtel.db")
+    st.caption(f"Source: {DB_SOURCE_LABEL}")
     st.caption("Customer analysis table: 22,000 subscribers")
 
 MAIN_FILTERS = {"plan": main_plan, "connection": main_connection, "region": main_region}
@@ -873,12 +912,15 @@ with page_overview:
     st.markdown('<div class="section-label">Revenue Overview</div>', unsafe_allow_html=True)
 
     # The project fixed KPI: received recharge amount from Jan–Jun 2025; independent of filters.
-    fixed_total = q("""
-        SELECT SUM(amount_inr) AS total
-        FROM recharges
-        WHERE date(recharge_date) >= '2025-01-01'
-          AND date(recharge_date) < '2025-07-01'
-    """).iloc[0]["total"]
+    if HAS_RECHARGES:
+        fixed_total = q("""
+            SELECT SUM(amount_inr) AS total
+            FROM recharges
+            WHERE date(recharge_date) >= '2025-01-01'
+              AND date(recharge_date) < '2025-07-01'
+        """).iloc[0]["total"]
+    else:
+        fixed_total = q("SELECT SUM(recharge_total_6m) AS total FROM customer_features").iloc[0]["total"]
 
     # Statistical validation notebook supplied in the project has no completed T5 output.
     # Keep this honest rather than displaying an invented p-value.
@@ -1145,7 +1187,7 @@ with page_detail:
         with hdr_col:
             st.markdown(
                 '<div class="section-label">Revenue Detail</div>'
-                '<div class="detail-sub">Select a plan to inspect its revenue, monthly trend, connection contribution and payment behaviour.</div>',
+                '<div class="detail-sub">Select a plan to inspect its revenue, circle performance, connection contribution and segment breakdown.</div>',
                 unsafe_allow_html=True,
             )
         with selector_col:
@@ -1212,60 +1254,76 @@ with page_detail:
                 else:
                     st.info("No plan comparison data for these filters.")
 
-        # Detail chart 2 — WATERFALL of month-on-month change in received revenue.
+        # Detail chart 2 — BUBBLE QUADRANT: 22 Airtel circles (Churn rate % vs Actual ARPU ₹, sized by Received revenue).
         with right:
-            with card("dt_monthly"):
-                render_chart_title("2. Monthly received-revenue trend", "🌊")
+            with card("dt_quadrant"):
+                render_chart_title("2. Circle ARPU vs churn quadrant", "🧭")
                 local = chart_filter_ui(
-                    "detail_monthly",
-                    ("connection", "region", "channel", "txn_type"),
+                    "detail_quadrant",
+                    ("connection", "device"),
                     MAIN_FILTERS,
-                    extras={"plan_scope": ("Plan scope", ["Selected plan", "All plans"])},
+                    extras={
+                        "plan_scope": ("Plan scope", ["All plans", "Selected plan"]),
+                        "labels_mode": ("Circle labels", ["Key outliers", "All circles"]),
+                    },
                 )
-                trend_filters = {
+                quad_filters = {
                     "plan": selected_plan if local["plan_scope"] == "Selected plan" else "All",
                     "connection": local["connection"],
-                    "region": local["region"],
-                    "channel": local["channel"],
-                    "txn_type": local["txn_type"],
+                    "region": main_region,
+                    "device": local["device"],
                 }
-                trend_where, trend_params = recharge_where(trend_filters, MAIN_START, MAIN_END, "cf")
-                trend = q(
-                    f"""
-                    SELECT strftime('%Y-%m', r.recharge_date) AS month,
-                           SUM(r.amount_inr) AS revenue,
-                           COUNT(*) AS transactions
-                    FROM recharges r JOIN customer_features cf ON cf.customer_id = r.customer_id
-                    WHERE {trend_where}
-                    GROUP BY month ORDER BY month
-                    """,
-                    trend_params,
+                quad = customer_query(
+                    "cp.circle_name AS circle, cp.region AS region, "
+                    "COUNT(*) AS subscribers, SUM(cp.received_revenue) AS revenue, "
+                    "AVG(cp.actual_arpu_period) AS arpu, 100.0 * AVG(cp.is_churned) AS churn_pct",
+                    quad_filters, MAIN_START, MAIN_END,
+                    "GROUP BY cp.circle_name, cp.region HAVING COUNT(*) > 0 ORDER BY revenue DESC",
                 )
-                if not trend.empty:
-                    months = trend["month"].astype(str).tolist()
-                    rev = trend["revenue"].fillna(0).astype(float).tolist()
-                    xs = [months[0]] + months[1:]
-                    ys = [rev[0]] + [rev[i] - rev[i - 1] for i in range(1, len(rev))]
-                    measure = ["absolute"] + ["relative"] * (len(rev) - 1)
-                    texts = [f"₹{rev[0]:,.0f}"] + [f"{ys[i]:+,.0f}" for i in range(1, len(rev))]
-                    if len(rev) > 1:
-                        xs.append("Latest")
-                        ys.append(0)
-                        measure.append("total")
-                        texts.append(f"₹{rev[-1]:,.0f}")
-                    fig = go.Figure(go.Waterfall(
-                        x=xs, y=ys, measure=measure, text=texts, textposition="outside",
-                        textfont=dict(size=9.5, color=INK), cliponaxis=False,
-                        increasing={"marker": {"color": TEAL}}, decreasing={"marker": {"color": RED}},
-                        totals={"marker": {"color": NAVY}}, connector={"line": {"color": "#AAB0B8", "dash": "dot"}},
-                        hovertemplate="%{x}<br>%{text}<extra></extra>",
-                    ))
-                    fig.update_layout(showlegend=False, xaxis_title="", yaxis_title="Received revenue (₹)")
-                    fig.update_yaxes(showgrid=True, gridcolor=GRID)
-                    render_chart(fig, 240, margin=dict(l=30, r=10, t=20, b=22))
-                    st.markdown('<div class="chart-note">First bar = first month; green/red = month-on-month change; last bar = latest month. Filter by channel, txn type, or plan scope.</div>', unsafe_allow_html=True)
+                if not quad.empty:
+                    qdf = quad.fillna(0).copy()
+                    max_rev = max(float(qdf["revenue"].max()), 1.0)
+                    avg_churn = float(qdf["churn_pct"].mean())
+                    avg_arpu = float(qdf["arpu"].mean())
+                    y_min, y_max = float(qdf["arpu"].min()), float(qdf["arpu"].max())
+                    y_pad = max(14.0, (y_max - y_min) * 0.25)
+                    region_colors = {"North": INDIGO, "South": TEAL, "East": "#FF9F1C", "West": RED}
+                    key_circles = set()
+                    if len(qdf) > 0:
+                        key_circles.add(qdf.nlargest(1, "arpu").iloc[0]["circle"])
+                        key_circles.add(qdf.nlargest(1, "churn_pct").iloc[0]["circle"])
+                        key_circles.add(qdf.nsmallest(1, "churn_pct").iloc[0]["circle"])
+                        key_circles.add(qdf.nlargest(1, "revenue").iloc[0]["circle"])
+                    fig = go.Figure()
+                    for reg, grp in qdf.groupby("region", sort=True):
+                        col = region_colors.get(str(reg), NAVY)
+                        sizes = (11 + 22 * (grp["revenue"] / max_rev) ** 0.5).tolist()
+                        labels, pos_list = [], []
+                        for _, r_row in grp.iterrows():
+                            cname = str(r_row["circle"])
+                            show = local["labels_mode"] == "All circles" or cname in key_circles
+                            labels.append(cname if show else "")
+                            pos_list.append("bottom center" if float(r_row["arpu"]) < avg_arpu else "top center")
+                        fig.add_trace(go.Scatter(
+                            x=grp["churn_pct"], y=grp["arpu"],
+                            mode="markers+text", name=str(reg),
+                            text=labels, textposition=pos_list,
+                            textfont=dict(size=8.5, color=INK),
+                            marker=dict(size=sizes, color=col, opacity=0.84, line=dict(width=1.4, color="#fff")),
+                            customdata=grp[["circle", "subscribers", "revenue"]].to_numpy(),
+                            hovertemplate="<b>%{customdata[0]}</b> (" + escape(str(reg)) + ")"
+                                          "<br>Actual ARPU: ₹%{y:,.1f}/mo<br>Churn rate: %{x:.1f}%"
+                                          "<br>Received revenue: ₹%{customdata[2]:,.0f}"
+                                          "<br>Subscribers: %{customdata[1]:,.0f}<extra></extra>",
+                        ))
+                    fig.add_vline(x=avg_churn, line_dash="dot", line_color="#8C939E", line_width=1.2)
+                    fig.add_hline(y=avg_arpu, line_dash="dot", line_color="#8C939E", line_width=1.2)
+                    fig.update_layout(xaxis_title="Churn rate (%)", yaxis_title="Actual ARPU (₹/mo)")
+                    fig.update_yaxes(showgrid=True, gridcolor=GRID, range=[y_min - y_pad * 0.7, y_max + y_pad])
+                    render_chart(fig, 240, margin=dict(l=32, r=14, t=26, b=24))
+                    st.markdown('<div class="chart-note">Each bubble = an Airtel circle (size = received revenue, colour = region). Dashed crosshairs mark circle averages: top-left = high ARPU &amp; low churn.</div>', unsafe_allow_html=True)
                 else:
-                    st.info("No monthly recharge records for these filters/date range.")
+                    st.info("No circle records match these quadrant filters.")
 
         left2, right2 = st.columns(2, gap="small")
 
@@ -1273,26 +1331,40 @@ with page_detail:
         with left2:
             with card("dt_connection"):
                 render_chart_title("3. Connection-wise received revenue", "⏱️")
-                local = chart_filter_ui("detail_connection", ("region", "circle", "channel", "device"), MAIN_FILTERS)
+                conn_dims = ("region", "circle", "channel", "device") if HAS_RECHARGES else ("region", "circle", "device")
+                local = chart_filter_ui("detail_connection", conn_dims, MAIN_FILTERS)
                 conn_filters = {
                     "plan": "All",
                     "connection": "All",
                     "region": local["region"],
                     "circle": local["circle"],
-                    "channel": local["channel"],
+                    "channel": local.get("channel", "All"),
                     "device": local["device"],
                 }
-                conn_where, conn_params = recharge_where(conn_filters, MAIN_START, MAIN_END, "cf")
-                connection_revenue = q(
-                    f"""
-                    SELECT cf.connection_type, SUM(r.amount_inr) AS revenue,
-                           COUNT(DISTINCT r.customer_id) AS subscribers
-                    FROM recharges r JOIN customer_features cf ON cf.customer_id = r.customer_id
-                    WHERE {conn_where}
-                    GROUP BY cf.connection_type ORDER BY revenue DESC
-                    """,
-                    conn_params,
-                )
+                if HAS_RECHARGES:
+                    conn_where, conn_params = recharge_where(conn_filters, MAIN_START, MAIN_END, "cf")
+                    connection_revenue = q(
+                        f"""
+                        SELECT cf.connection_type, SUM(r.amount_inr) AS revenue,
+                               COUNT(DISTINCT r.customer_id) AS subscribers
+                        FROM recharges r JOIN customer_features cf ON cf.customer_id = r.customer_id
+                        WHERE {conn_where}
+                        GROUP BY cf.connection_type ORDER BY revenue DESC
+                        """,
+                        conn_params,
+                    )
+                else:
+                    conn_where, conn_params = where_for(conn_filters, "cf")
+                    connection_revenue = q(
+                        f"""
+                        SELECT cf.connection_type, SUM(cf.recharge_total_6m) AS revenue,
+                               COUNT(*) AS subscribers
+                        FROM customer_features cf
+                        WHERE {conn_where}
+                        GROUP BY cf.connection_type ORDER BY revenue DESC
+                        """,
+                        conn_params,
+                    )
                 if not connection_revenue.empty:
                     conn = connection_revenue.fillna(0).reset_index(drop=True)
                     total_rev = float(conn["revenue"].sum()) or 1.0
@@ -1303,11 +1375,11 @@ with page_detail:
                         col = PALETTE[i % len(PALETTE)]
                         fig.add_trace(go.Indicator(
                             mode="gauge+number", value=pct,
-                            number={"suffix": "%", "valueformat": ".1f", "font": {"size": 24, "color": INK}},
-                            title={"font": {"size": 11.5},
+                            number={"suffix": "%", "valueformat": ".1f", "font": {"size": 21, "color": INK}},
+                            title={"font": {"size": 11},
                                    "text": f"<b>{escape(str(row['connection_type']))}</b><br>"
-                                           f"<span style='font-size:10px;color:#5E6671'>₹{row['revenue']:,.0f} • {int(row['subscribers']):,} subs</span>"},
-                            domain={"x": [i / n_g + 0.03, (i + 1) / n_g - 0.03], "y": [0.08, 0.74]},
+                                           f"<span style='font-size:9.5px;color:#5E6671'>₹{row['revenue']:,.0f} • {int(row['subscribers']):,} subs</span>"},
+                            domain={"x": [i / n_g + 0.03, (i + 1) / n_g - 0.03], "y": [0.06, 0.72]},
                             gauge={
                                 "axis": {"range": [0, 100], "tickfont": {"size": 8.5, "color": "#5E6671"}},
                                 "bar": {"color": col, "thickness": 0.75},
@@ -1316,78 +1388,79 @@ with page_detail:
                                 "threshold": {"line": {"color": NAVY, "width": 2.5}, "thickness": 0.8, "value": pct},
                             },
                         ))
-                    render_chart(fig, 240, margin=dict(l=12, r=12, t=28, b=8))
-                    st.markdown(f'<div class="chart-note">Each gauge = share of total received revenue (₹{total_rev:,.0f}) across connection types by region, circle, channel, and device.</div>', unsafe_allow_html=True)
+                    render_chart(fig, 240, margin=dict(l=12, r=12, t=24, b=6))
+                    st.markdown(f'<div class="chart-note">Each gauge = share of total received revenue (₹{total_rev:,.0f}) across connection types by region, circle,{" channel," if HAS_RECHARGES else ""} and device.</div>', unsafe_allow_html=True)
                 else:
                     st.info("No connection-wise revenue for these filters.")
 
-        # Detail chart 4 — SANKEY: received revenue flowing from recharge channel to transaction type.
+        # Detail chart 4 — ANNOTATED HEATMAP: cross-segment ARPU, revenue, churn, or data usage matrix.
         with right2:
-            with card("dt_payment"):
-                render_chart_title("4. Subscriber payment / recharge analysis", "🔀")
-                flow_options = {
-                    "Received revenue (₹)": ("revenue", "₹{:,.0f}"),
-                    "Transactions": ("transactions", "{:,.0f} txns"),
-                    "Unique subscribers": ("subscribers", "{:,.0f} subs"),
+            with card("dt_heatmap"):
+                render_chart_title("4. Segment performance heatmap", "🔥")
+                dim_cols = {
+                    "Region": "cp.region",
+                    "Age band": "cp.age_band",
+                    "Device type": "cp.device_type",
+                    "Acquisition": "cp.acquisition_channel",
+                }
+                heat_metrics = {
+                    "Actual ARPU (₹)": ("AVG(cp.actual_arpu_period)", "₹{:,.0f}"),
+                    "Received revenue (₹)": ("SUM(cp.received_revenue)", "₹{:,.0f}"),
+                    "Churn rate (%)": ("100.0 * AVG(cp.is_churned)", "{:.1f}%"),
+                    "Avg data (GB)": ("AVG(cp.total_data_mb) / 1024.0", "{:.1f} GB"),
                 }
                 local = chart_filter_ui(
-                    "detail_payment",
-                    ("connection", "region", "device"),
+                    "detail_heatmap",
+                    ("connection",),
                     MAIN_FILTERS,
                     extras={
-                        "plan_scope": ("Plan scope", ["Selected plan", "All plans"]),
-                        "flow_metric": ("Flow size by", list(flow_options.keys())),
+                        "heat_metric": ("Metric", list(heat_metrics.keys())),
+                        "heat_row": ("Rows", ["Region", "Acquisition", "Device type"]),
+                        "heat_col": ("Columns", ["Age band", "Device type", "Acquisition"]),
                     },
                 )
-                pay_filters = {
-                    "plan": selected_plan if local["plan_scope"] == "Selected plan" else "All",
+                row_dim, col_dim = dim_cols[local["heat_row"]], dim_cols[local["heat_col"]]
+                if row_dim == col_dim:
+                    col_dim = dim_cols["Age band"] if local["heat_row"] != "Age band" else dim_cols["Device type"]
+                metric_sql, metric_fmt = heat_metrics[local["heat_metric"]]
+                heat_filters = {
+                    "plan": main_plan,
                     "connection": local["connection"],
-                    "region": local["region"],
-                    "device": local["device"],
+                    "region": main_region,
                 }
-                pay_where, pay_params = recharge_where(pay_filters, MAIN_START, MAIN_END, "cf")
-                payment = q(
-                    f"""
-                    SELECT r.channel, r.txn_type,
-                           COUNT(DISTINCT r.customer_id) AS subscribers,
-                           COUNT(*) AS transactions,
-                           SUM(r.amount_inr) AS revenue
-                    FROM recharges r JOIN customer_features cf ON cf.customer_id = r.customer_id
-                    WHERE {pay_where}
-                    GROUP BY r.channel, r.txn_type ORDER BY r.channel, r.txn_type
-                    """,
-                    pay_params,
+                heat_df = customer_query(
+                    f"{row_dim} AS row_lbl, {col_dim} AS col_lbl, {metric_sql} AS val",
+                    heat_filters, MAIN_START, MAIN_END,
+                    f"GROUP BY {row_dim}, {col_dim}",
                 )
-                flow_col, _ = flow_options[local["flow_metric"]]
-                payment = payment[payment[flow_col].fillna(0) > 0] if not payment.empty else payment
-                if not payment.empty:
-                    channels = sorted(payment["channel"].astype(str).unique())
-                    types = sorted(payment["txn_type"].astype(str).unique())
-                    ch_idx = {c: i for i, c in enumerate(channels)}
-                    ty_idx = {t: len(channels) + i for i, t in enumerate(types)}
-                    ch_col = {c: PALETTE[i % len(PALETTE)] for i, c in enumerate(channels)}
-                    node_colors = [ch_col[c] for c in channels] + [NAVY] * len(types)
-                    src_i = [ch_idx[str(c)] for c in payment["channel"]]
-                    tgt_i = [ty_idx[str(t)] for t in payment["txn_type"]]
-                    flow_label = local["flow_metric"]
-                    fig = go.Figure(go.Sankey(
-                        arrangement="snap",
-                        node=dict(label=channels + types, color=node_colors, pad=14, thickness=18,
-                                  line=dict(color="#fff", width=1),
-                                  hovertemplate="%{label}<br>" + flow_label + ": %{value:,.0f}<extra></extra>"),
-                        link=dict(
-                            source=src_i, target=tgt_i, value=payment[flow_col].astype(float).tolist(),
-                            color=[rgba(ch_col[str(c)], 0.38) for c in payment["channel"]],
-                            customdata=payment[["revenue", "subscribers", "transactions"]].to_numpy(),
-                            hovertemplate="%{source.label} → %{target.label}<br>Received revenue: ₹%{customdata[0]:,.0f}"
-                                          "<br>Subscribers: %{customdata[1]:,.0f}<br>Transactions: %{customdata[2]:,.0f}<extra></extra>",
-                        ),
+                if not heat_df.empty:
+                    pivot = heat_df.pivot(index="row_lbl", columns="col_lbl", values="val").fillna(0)
+                    text_vals = []
+                    for r_idx in range(len(pivot.index)):
+                        row_txt = []
+                        for c_idx in range(len(pivot.columns)):
+                            val = float(pivot.iloc[r_idx, c_idx])
+                            row_txt.append(f"₹{val/1e5:,.1f}L" if local["heat_metric"] == "Received revenue (₹)" and val >= 1e5 else metric_fmt.format(val))
+                        text_vals.append(row_txt)
+                    fig = go.Figure(go.Heatmap(
+                        z=pivot.to_numpy(),
+                        x=[str(c) for c in pivot.columns],
+                        y=[str(r) for r in pivot.index],
+                        text=text_vals,
+                        texttemplate="%{text}",
+                        textfont=dict(size=10, color=INK),
+                        colorscale=[[0.0, "#FFF5F7"], [0.45, "#FFD0D9"], [0.8, "#FF8EA3"], [1.0, "#FF4D6D"]],
+                        showscale=False,
+                        xgap=3, ygap=3,
+                        hovertemplate="%{y} × %{x}<br>" + escape(local["heat_metric"]) + ": <b>%{text}</b><extra></extra>",
                     ))
-                    fig.update_layout(font=dict(family="Inter", size=10.5, color=INK))
-                    render_chart(fig, 240, margin=dict(l=6, r=6, t=6, b=6))
-                    st.markdown(f'<div class="chart-note">Left = recharge channel, right = transaction type. Band width = {escape(flow_label.lower())}; hover for full details.</div>', unsafe_allow_html=True)
+                    fig.update_layout(xaxis_title=local["heat_col"], yaxis_title=local["heat_row"])
+                    fig.update_xaxes(side="top", showgrid=False)
+                    fig.update_yaxes(autorange="reversed", showgrid=False)
+                    render_chart(fig, 240, margin=dict(l=28, r=10, t=34, b=14))
+                    st.markdown('<div class="chart-note">Switch metric (ARPU, revenue, churn %, data GB) and axes to spot high-value demographic or acquisition hot spots.</div>', unsafe_allow_html=True)
                 else:
-                    st.info("No payment-channel records for these filters/date range.")
+                    st.info("No segment records match these heatmap filters.")
 
 # --------------------------- FOOTER ---------------------------
 st.markdown(
@@ -1457,8 +1530,21 @@ components.html(
         doc.querySelectorAll('.kpi-value:not([data-done])').forEach(countUp);
       }, 500);
 
-      // Dynamically size chart heights to match the active viewport height with zero vertical scroll
+      // Dynamically size chart containers + Plotly SVGs so charts stay crisp and fit cleanly
       let fitRaf = 0;
+      function syncPlotlyHeights(panel, targetH) {
+        if (!w.Plotly || !panel) return;
+        panel.querySelectorAll('[data-testid="stPlotlyChart"] .js-plotly-plot').forEach(function (plotEl) {
+          const fl = plotEl._fullLayout;
+          const wrap = plotEl.closest('[data-testid="stPlotlyChart"]');
+          const h = Math.round((wrap ? wrap.getBoundingClientRect().height : 0) || targetH || 235);
+          if (h < 120) return;
+          if (!fl || Math.abs((fl.height || 0) - h) >= 2) {
+            try { w.Plotly.relayout(plotEl, { height: h }); } catch (e) {}
+          }
+        });
+      }
+
       function fitChartsToViewport() {
         if (fitRaf) w.cancelAnimationFrame(fitRaf);
         fitRaf = w.requestAnimationFrame(function () {
@@ -1471,12 +1557,18 @@ components.html(
           const vh = w.innerHeight || doc.documentElement.clientHeight;
           const cur = charts[0].getBoundingClientRect().height;
           if (cur < 50) return;
+          const topSet = new Set();
+          charts.forEach(function (c) { topSet.add(Math.round(c.getBoundingClientRect().top / 60)); });
+          const rowCount = Math.max(1, topSet.size);
           const blockH = block.getBoundingClientRect().height;
-          const nonChartH = blockH - (2 * cur);
-          const next = Math.max(140, Math.min(430, Math.floor((vh - nonChartH - 12) / 2)));
+          const nonChartH = Math.max(240, blockH - (rowCount * cur));
+          const perRowTarget = Math.floor((vh - nonChartH - 14) / Math.min(2, rowCount));
+          const next = Math.max(220, Math.min(320, perRowTarget));
           if (Math.abs(next - cur) >= 2) {
             doc.documentElement.style.setProperty('--chart-h', next + 'px');
+            w.dispatchEvent(new Event('resize'));
           }
+          syncPlotlyHeights(panel, next);
         });
       }
       w.addEventListener('resize', fitChartsToViewport);
@@ -1484,6 +1576,7 @@ components.html(
         if (e.target.closest && e.target.closest('[data-baseweb="tab"], [data-testid="stTab"]')) {
           setTimeout(fitChartsToViewport, 80);
           setTimeout(fitChartsToViewport, 350);
+          setTimeout(fitChartsToViewport, 750);
         }
       });
       if (w.MutationObserver) {
@@ -1491,6 +1584,7 @@ components.html(
         const mainNode = doc.querySelector('[data-testid="stMain"]') || doc.body;
         obs.observe(mainNode, { childList: true, subtree: true });
       }
+      setInterval(fitChartsToViewport, 700);
       setTimeout(fitChartsToViewport, 120);
       setTimeout(fitChartsToViewport, 450);
       setTimeout(fitChartsToViewport, 900);
